@@ -13,3 +13,8 @@
 {"ts":"2026-03-04T15:21:08.939968261+00:00","action":"claim","node_id":"Lq6u.pJ3m","part":"claude","reason":"can work in parallel with scaffolding"}
 {"ts":"2026-03-04T15:35:36.226662149+00:00","action":"integrate","node_id":"Lq6u.xSDv","reason":"cargo check passes; all modules stubbed with correct signatures"}
 {"ts":"2026-03-04T15:35:36.228244825+00:00","action":"integrate","node_id":"Lq6u.pJ3m","reason":"scripts/build-image.sh: expect-based Alpine install, rc.local fw_cfg key injection, iptables proxy redirect, browser variant"}
+{"ts":"2026-03-04T15:44:41.301429947+00:00","action":"surface","node_id":"Lq6u.Qdul","reason":"xSDv integrated, no remaining blockers"}
+{"ts":"2026-03-04T15:44:41.303116993+00:00","action":"surface","node_id":"Lq6u.LPha","reason":"xSDv integrated; Qdul still needed but will claim together"}
+{"ts":"2026-03-04T15:44:46.349894825+00:00","action":"surface","node_id":"Lq6u.QyyE","reason":"xSDv integrated"}
+{"ts":"2026-03-04T15:44:46.351499035+00:00","action":"surface","node_id":"Lq6u.qJX8","reason":"xSDv integrated; Qdul still needed"}
+{"ts":"2026-03-04T15:48:21.874795553+00:00","action":"claim","node_id":"Lq6u.Qdul","part":"claude","reason":"implementing configuration system"}
