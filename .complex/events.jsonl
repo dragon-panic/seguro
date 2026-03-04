@@ -30,3 +30,4 @@
 {"ts":"2026-03-04T16:08:50.687981972+00:00","action":"integrate","node_id":"Lq6u.yX1j","reason":"all subcommands implemented: run (full orchestration), shell, sessions ls/prune, snapshot save/restore, proxy-log tail"}
 {"ts":"2026-03-04T16:09:07.012490191+00:00","action":"surface","node_id":"Lq6u.aKE3","reason":"all dependencies integrated"}
 {"ts":"2026-03-04T16:09:07.014069627+00:00","action":"claim","node_id":"Lq6u.aKE3","part":"claude"}
+{"ts":"2026-03-04T16:13:12.617623440+00:00","action":"integrate","node_id":"Lq6u.aKE3","reason":"9 acceptance tests covering all PRD criteria; 1 non-KVM test passes; 8 KVM-gated tests ignored by default"}
