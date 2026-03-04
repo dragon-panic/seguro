@@ -1,0 +1,164 @@
+{
+  "version": 1,
+  "nodes": [
+    {
+      "id": "Lq6u",
+      "title": "Seguro MVP",
+      "state": "latent",
+      "shadowed": false,
+      "part": null,
+      "created_at": "2026-03-04T15:17:21.649472824Z",
+      "updated_at": "2026-03-04T15:17:21.649472824Z"
+    },
+    {
+      "id": "Lq6u.xSDv",
+      "title": "Project scaffolding",
+      "state": "ready",
+      "shadowed": false,
+      "part": null,
+      "created_at": "2026-03-04T15:17:31.747439098Z",
+      "updated_at": "2026-03-04T15:19:22.890069105Z",
+      "meta": {
+        "_reason": "first task, no dependencies"
+      }
+    },
+    {
+      "id": "Lq6u.Qdul",
+      "title": "Configuration system",
+      "state": "latent",
+      "shadowed": false,
+      "part": null,
+      "created_at": "2026-03-04T15:17:37.951885578Z",
+      "updated_at": "2026-03-04T15:17:37.951885578Z"
+    },
+    {
+      "id": "Lq6u.qJX8",
+      "title": "Session management",
+      "state": "latent",
+      "shadowed": false,
+      "part": null,
+      "created_at": "2026-03-04T15:17:46.785308769Z",
+      "updated_at": "2026-03-04T15:17:46.785308769Z"
+    },
+    {
+      "id": "Lq6u.LPha",
+      "title": "VM orchestration",
+      "state": "latent",
+      "shadowed": false,
+      "part": null,
+      "created_at": "2026-03-04T15:17:57.938454434Z",
+      "updated_at": "2026-03-04T15:17:57.938454434Z"
+    },
+    {
+      "id": "Lq6u.QyyE",
+      "title": "Built-in proxy server",
+      "state": "latent",
+      "shadowed": false,
+      "part": null,
+      "created_at": "2026-03-04T15:18:09.519063295Z",
+      "updated_at": "2026-03-04T15:18:09.519063295Z"
+    },
+    {
+      "id": "Lq6u.yX1j",
+      "title": "CLI commands",
+      "state": "latent",
+      "shadowed": false,
+      "part": null,
+      "created_at": "2026-03-04T15:18:18.534043250Z",
+      "updated_at": "2026-03-04T15:18:18.534043250Z"
+    },
+    {
+      "id": "Lq6u.pJ3m",
+      "title": "Base image builder",
+      "state": "ready",
+      "shadowed": false,
+      "part": null,
+      "created_at": "2026-03-04T15:18:28.843369814Z",
+      "updated_at": "2026-03-04T15:19:22.891794048Z",
+      "meta": {
+        "_reason": "independent of Rust code, can be worked in parallel"
+      }
+    },
+    {
+      "id": "Lq6u.aKE3",
+      "title": "Acceptance tests",
+      "state": "latent",
+      "shadowed": false,
+      "part": null,
+      "created_at": "2026-03-04T15:18:38.778609684Z",
+      "updated_at": "2026-03-04T15:18:38.778609684Z"
+    }
+  ],
+  "edges": [
+    {
+      "from": "Lq6u.xSDv",
+      "to": "Lq6u.Qdul",
+      "type": "blocks"
+    },
+    {
+      "from": "Lq6u.xSDv",
+      "to": "Lq6u.qJX8",
+      "type": "blocks"
+    },
+    {
+      "from": "Lq6u.xSDv",
+      "to": "Lq6u.LPha",
+      "type": "blocks"
+    },
+    {
+      "from": "Lq6u.xSDv",
+      "to": "Lq6u.QyyE",
+      "type": "blocks"
+    },
+    {
+      "from": "Lq6u.xSDv",
+      "to": "Lq6u.yX1j",
+      "type": "blocks"
+    },
+    {
+      "from": "Lq6u.Qdul",
+      "to": "Lq6u.qJX8",
+      "type": "blocks"
+    },
+    {
+      "from": "Lq6u.Qdul",
+      "to": "Lq6u.LPha",
+      "type": "blocks"
+    },
+    {
+      "from": "Lq6u.Qdul",
+      "to": "Lq6u.QyyE",
+      "type": "blocks"
+    },
+    {
+      "from": "Lq6u.Qdul",
+      "to": "Lq6u.yX1j",
+      "type": "blocks"
+    },
+    {
+      "from": "Lq6u.qJX8",
+      "to": "Lq6u.yX1j",
+      "type": "blocks"
+    },
+    {
+      "from": "Lq6u.LPha",
+      "to": "Lq6u.yX1j",
+      "type": "blocks"
+    },
+    {
+      "from": "Lq6u.QyyE",
+      "to": "Lq6u.yX1j",
+      "type": "blocks"
+    },
+    {
+      "from": "Lq6u.yX1j",
+      "to": "Lq6u.aKE3",
+      "type": "blocks"
+    },
+    {
+      "from": "Lq6u.pJ3m",
+      "to": "Lq6u.aKE3",
+      "type": "blocks"
+    }
+  ]
+}

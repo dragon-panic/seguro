@@ -1,0 +1,1 @@
+Secure QEMU sandbox for CLI coding agents. Single Rust binary. See docs/prd/README.md for full spec.
