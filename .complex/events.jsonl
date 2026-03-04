@@ -22,3 +22,6 @@
 {"ts":"2026-03-04T15:57:58.355010547+00:00","action":"claim","node_id":"Lq6u.qJX8","part":"claude"}
 {"ts":"2026-03-04T15:57:58.357053230+00:00","action":"claim","node_id":"Lq6u.LPha","part":"claude"}
 {"ts":"2026-03-04T15:57:58.358797993+00:00","action":"claim","node_id":"Lq6u.QyyE","part":"claude"}
+{"ts":"2026-03-04T16:04:51.389508509+00:00","action":"integrate","node_id":"Lq6u.qJX8","reason":"session struct with pid tracking, image overlay/snapshot, orphan detection"}
+{"ts":"2026-03-04T16:04:51.391171690+00:00","action":"integrate","node_id":"Lq6u.LPha","reason":"QEMU builder with full arg list, SSH polling with backoff, virtiofsd socket wait"}
+{"ts":"2026-03-04T16:04:51.392779073+00:00","action":"integrate","node_id":"Lq6u.QyyE","reason":"hyper 1.x forward proxy; CONNECT tunnel; 4 modes; SSRF filter; JSONL log"}
