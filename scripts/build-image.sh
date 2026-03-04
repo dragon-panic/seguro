@@ -118,7 +118,7 @@ run_install_phase() {
     answers_b64=$(base64 -w0 < "$TMP_DIR/answers")
 
     expect -f - <<EXPECT
-set timeout 180
+set timeout 300
 log_user 1
 
 spawn qemu-system-x86_64 \
@@ -130,7 +130,7 @@ spawn qemu-system-x86_64 \
     -boot d \
     -netdev user,id=net0 \
     -device virtio-net-pci,netdev=net0 \
-    -nographic -serial stdio \
+    -display none -serial mon:stdio \
     -no-reboot
 
 # Wait for the login prompt (Alpine virt ISO boots fast)
@@ -159,11 +159,15 @@ expect "# "
 
 send "setup-alpine -f /tmp/answers\r"
 
-# setup-alpine will ask for disk format (ext4/btrfs/etc); accept default
+# setup-alpine prompts interactively for several things the answers file doesn't cover
 expect {
     timeout { send_user "\nerror: setup-alpine timed out\n"; exit 1 }
+    "New password:"                        { send "seguro-build\r"; exp_continue }
+    "Retype password:"                     { send "seguro-build\r"; exp_continue }
+    "Setup a user?"                        { send "no\r"; exp_continue }
+    "Which SSH server"                     { send "\r"; exp_continue }
     "Which disk(s) would you like to use?" { send "\r"; exp_continue }
-    "How would you like to use it?" { send "sys\r"; exp_continue }
+    "How would you like to use it?"        { send "sys\r"; exp_continue }
     "WARNING: Erase the above disk(s) and continue?" { send "y\r"; exp_continue }
     "Installation is complete"
 }
@@ -185,62 +189,42 @@ run_configure_phase() {
     log "Phase 2: Configuring packages and settings ($variant)..."
 
     # Build the package list
-    local pkgs="openssh git curl wget bash python3 py3-pip nodejs npm"
+    local pkgs="openssh git curl wget bash python3 py3-pip nodejs npm iptables"
     if [[ "$variant" == "browser" ]]; then
         pkgs="$pkgs chromium chromium-chromedriver"
     fi
 
-    # rc.local content: reads SSH key and env vars from fw_cfg, applies iptables
-    local rclocal
-    rclocal=$(cat <<'RCLOCAL'
+    # Write config files to temp dir and encode as base64
+    # (avoids heredoc-inside-expect quoting nightmares)
+
+    cat > "$TMP_DIR/rc.local" <<'RCLOCAL'
 #!/bin/sh
-# Seguro guest startup script
-
 FW_CFG=/sys/firmware/qemu_fw_cfg/by_name
-
-# ── SSH authorized key ───────────────────────────────────────────────────────
 AUTH_KEY_SRC="$FW_CFG/opt/seguro/authorized_key/raw"
 if [ -f "$AUTH_KEY_SRC" ]; then
     install -d -m 700 -o agent -g agent /home/agent/.ssh
     install -m 600 -o agent -g agent "$AUTH_KEY_SRC" /home/agent/.ssh/authorized_keys
 fi
-
-# ── Environment variables ─────────────────────────────────────────────────────
 ENV_DIR="$FW_CFG/opt/seguro/env"
 if [ -d "$ENV_DIR" ]; then
     for f in "$ENV_DIR"/*/raw; do
         [ -f "$f" ] || continue
-        # Extract variable name from path: .../opt/seguro/env/VAR_NAME/raw
         var=$(echo "$f" | sed 's|.*/opt/seguro/env/\([^/]*\)/raw|\1|')
         val=$(cat "$f")
         printf '%s=%s\n' "$var" "$val" >> /etc/environment
     done
 fi
-
-# ── Proxy iptables rules ──────────────────────────────────────────────────────
-# Route all HTTP/HTTPS traffic through the seguro proxy at 10.0.2.100:3128.
-# Drop all other outbound TCP and non-DNS UDP as defence-in-depth.
-PROXY_ADDR="10.0.2.100"
-PROXY_PORT="3128"
-
-iptables -t nat -A OUTPUT ! -d "$PROXY_ADDR/24" -p tcp --dport 80  \
-    -j DNAT --to-destination "${PROXY_ADDR}:${PROXY_PORT}"
-iptables -t nat -A OUTPUT ! -d "$PROXY_ADDR/24" -p tcp --dport 443 \
-    -j DNAT --to-destination "${PROXY_ADDR}:${PROXY_PORT}"
-
-# Block non-proxy outbound TCP
-iptables -A OUTPUT ! -d "$PROXY_ADDR/24" -p tcp -j DROP
-# Allow DNS to SLIRP resolver only (10.0.2.3)
+PROXY="10.0.2.100"
+PORT="3128"
+iptables -t nat -A OUTPUT ! -d "$PROXY/24" -p tcp --dport 80  -j DNAT --to-destination "$PROXY:$PORT"
+iptables -t nat -A OUTPUT ! -d "$PROXY/24" -p tcp --dport 443 -j DNAT --to-destination "$PROXY:$PORT"
+iptables -A OUTPUT ! -d "$PROXY/24" -p tcp -j DROP
 iptables -A OUTPUT -d 10.0.2.3 -p udp --dport 53 -j ACCEPT
-iptables -A OUTPUT ! -d "$PROXY_ADDR/24" -p udp -j DROP
-
+iptables -A OUTPUT ! -d "$PROXY/24" -p udp -j DROP
 exit 0
 RCLOCAL
-)
 
-    # sshd_config: disable password auth, allow only 'agent' user
-    local sshdconfig
-    sshdconfig=$(cat <<'SSHD'
+    cat > "$TMP_DIR/sshd_config" <<'SSHD'
 PermitRootLogin no
 PasswordAuthentication no
 ChallengeResponseAuthentication no
@@ -249,7 +233,15 @@ UsePAM no
 PrintMotd no
 Subsystem sftp /usr/lib/ssh/sftp-server
 SSHD
-)
+
+    local rclocal_b64 sshd_b64
+    rclocal_b64=$(base64 -w0 < "$TMP_DIR/rc.local")
+    sshd_b64=$(base64 -w0 < "$TMP_DIR/sshd_config")
+
+    local browser_env=""
+    if [[ "$variant" == "browser" ]]; then
+        browser_env="echo 'PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium-browser' >> /etc/environment && echo 'PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1' >> /etc/environment"
+    fi
 
     expect -f - <<EXPECT
 set timeout 300
@@ -262,73 +254,81 @@ spawn qemu-system-x86_64 \
     -drive file=${work_disk},format=qcow2,if=virtio \
     -netdev user,id=net0 \
     -device virtio-net-pci,netdev=net0 \
-    -nographic -serial stdio \
+    -display none -serial mon:stdio \
     -no-reboot
 
 expect {
     timeout { send_user "\nerror: timed out waiting for login\n"; exit 1 }
-    "localhost login:"
+    "login:"
 }
 send "root\r"
-expect "# "
+
+# Handle optional password prompt (set during Phase 1)
+expect {
+    timeout { send_user "\nerror: timed out waiting for shell\n"; exit 1 }
+    "Password:" { send "seguro-build\r"; expect "# " }
+    "# " {}
+}
 
 # Wait for networking
-send "until ping -c1 -W2 dl-cdn.alpinelinux.org &>/dev/null; do sleep 2; done; echo NETREADY\r"
+send "until ping -c1 -W2 dl-cdn.alpinelinux.org >/dev/null 2>&1; do sleep 2; done; echo NETREADY\r"
 expect {
-    timeout { send_user "\nerror: network not ready after 60s\n"; exit 1 }
+    timeout { send_user "\nerror: network not ready after 120s\n"; exit 1 }
     "NETREADY"
 }
 expect "# "
 
-# Update and install packages
-send "apk update && apk add --no-cache ${pkgs} iptables && echo PKGDONE\r"
+# Install packages
+send "apk update && apk add --no-cache ${pkgs} && echo PKGDONE\r"
 expect {
     timeout { send_user "\nerror: package installation timed out\n"; exit 1 }
     "PKGDONE"
 }
 expect "# "
 
-# Create unprivileged 'agent' user
-send "adduser -D -s /bin/bash agent && echo USEROK\r"
+# Create unprivileged agent user
+send "adduser -D -h /home/agent -s /bin/bash agent && echo USEROK\r"
 expect {
+    timeout { send_user "\nerror: adduser timed out\n"; exit 1 }
+    "already exists" { exp_continue }
     "USEROK" {}
-    "already exists" { send_user "warn: user agent already exists\n" }
 }
 expect "# "
 
-# Mount qemu_fw_cfg on boot (via fstab entry)
-send {echo "none /sys/firmware/qemu_fw_cfg/by_name 9p trans=virtio,ro,nofail 0 0" >> /etc/fstab}
-send "\r"
+# Mount fw_cfg on boot
+send "printf '%s\n' 'none /sys/firmware/qemu_fw_cfg/by_name 9p trans=virtio,ro,nofail 0 0' >> /etc/fstab; echo FSTABDONE\r"
+expect "FSTABDONE"
 expect "# "
 
-# Install rc.local
-send "cat > /etc/rc.local << 'RCEOF'\r"
-send "${rclocal}\r"
-send "RCEOF\r"
-expect "# "
-send "chmod +x /etc/rc.local\r"
-expect "# "
-send "rc-update add local default\r"
+# Install rc.local (via base64 to avoid quoting issues)
+send "echo '${rclocal_b64}' | base64 -d > /etc/rc.local && chmod +x /etc/rc.local && rc-update add local default && echo RCLOCALDONE\r"
+expect {
+    timeout { send_user "\nerror: rc.local install timed out\n"; exit 1 }
+    "RCLOCALDONE"
+}
 expect "# "
 
-# Harden sshd
-send "cat > /etc/ssh/sshd_config << 'SSHDEOF'\r"
-send "${sshdconfig}\r"
-send "SSHDEOF\r"
+# Harden sshd_config
+send "echo '${sshd_b64}' | base64 -d > /etc/ssh/sshd_config && echo SSHDONE\r"
+expect {
+    timeout { send_user "\nerror: sshd_config install timed out\n"; exit 1 }
+    "SSHDONE"
+}
 expect "# "
 
-# Browser variant: set Playwright env in /etc/environment
-if {"${variant}" eq "browser"} {
-    send {echo 'PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium-browser' >> /etc/environment}
-    send "\r"
-    expect "# "
-    send {echo 'PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1' >> /etc/environment}
-    send "\r"
+# Browser env vars (empty string if not browser variant)
+if {[string length "${browser_env}"] > 0} {
+    send "${browser_env} && echo ENVDONE\r"
+    expect {
+        timeout { send_user "\nerror: browser env timed out\n"; exit 1 }
+        "ENVDONE"
+    }
     expect "# "
 }
 
-# Clean up APK cache to reduce image size
-send "rm -rf /var/cache/apk/*\r"
+# Clean apk cache
+send "rm -rf /var/cache/apk/* && echo CLEANDONE\r"
+expect "CLEANDONE"
 expect "# "
 
 send "poweroff\r"
