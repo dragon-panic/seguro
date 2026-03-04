@@ -13,13 +13,13 @@
     {
       "id": "Lq6u.xSDv",
       "title": "Project scaffolding",
-      "state": "ready",
+      "state": "claimed",
       "shadowed": false,
-      "part": null,
+      "part": "claude",
       "created_at": "2026-03-04T15:17:31.747439098Z",
-      "updated_at": "2026-03-04T15:19:22.890069105Z",
+      "updated_at": "2026-03-04T15:21:08.937580539Z",
       "meta": {
-        "_reason": "first task, no dependencies"
+        "_reason": "starting project scaffolding"
       }
     },
     {
@@ -70,13 +70,13 @@
     {
       "id": "Lq6u.pJ3m",
       "title": "Base image builder",
-      "state": "ready",
+      "state": "claimed",
       "shadowed": false,
-      "part": null,
+      "part": "claude",
       "created_at": "2026-03-04T15:18:28.843369814Z",
-      "updated_at": "2026-03-04T15:19:22.891794048Z",
+      "updated_at": "2026-03-04T15:21:08.939628459Z",
       "meta": {
-        "_reason": "independent of Rust code, can be worked in parallel"
+        "_reason": "can work in parallel with scaffolding"
       }
     },
     {
