@@ -11,18 +11,6 @@
       "updated_at": "2026-03-04T15:17:21.649472824Z"
     },
     {
-      "id": "Lq6u.Qdul",
-      "title": "Configuration system",
-      "state": "claimed",
-      "shadowed": false,
-      "part": "claude",
-      "created_at": "2026-03-04T15:17:37.951885578Z",
-      "updated_at": "2026-03-04T15:48:21.874268952Z",
-      "meta": {
-        "_reason": "implementing configuration system"
-      }
-    },
-    {
       "id": "Lq6u.qJX8",
       "title": "Session management",
       "state": "ready",
@@ -78,26 +66,6 @@
     }
   ],
   "edges": [
-    {
-      "from": "Lq6u.Qdul",
-      "to": "Lq6u.qJX8",
-      "type": "blocks"
-    },
-    {
-      "from": "Lq6u.Qdul",
-      "to": "Lq6u.LPha",
-      "type": "blocks"
-    },
-    {
-      "from": "Lq6u.Qdul",
-      "to": "Lq6u.QyyE",
-      "type": "blocks"
-    },
-    {
-      "from": "Lq6u.Qdul",
-      "to": "Lq6u.yX1j",
-      "type": "blocks"
-    },
     {
       "from": "Lq6u.qJX8",
       "to": "Lq6u.yX1j",
