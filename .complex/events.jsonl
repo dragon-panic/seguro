@@ -11,3 +11,5 @@
 {"ts":"2026-03-04T15:19:22.892091583+00:00","action":"surface","node_id":"Lq6u.pJ3m","reason":"independent of Rust code, can be worked in parallel"}
 {"ts":"2026-03-04T15:21:08.938158381+00:00","action":"claim","node_id":"Lq6u.xSDv","part":"claude","reason":"starting project scaffolding"}
 {"ts":"2026-03-04T15:21:08.939968261+00:00","action":"claim","node_id":"Lq6u.pJ3m","part":"claude","reason":"can work in parallel with scaffolding"}
+{"ts":"2026-03-04T15:35:36.226662149+00:00","action":"integrate","node_id":"Lq6u.xSDv","reason":"cargo check passes; all modules stubbed with correct signatures"}
+{"ts":"2026-03-04T15:35:36.228244825+00:00","action":"integrate","node_id":"Lq6u.pJ3m","reason":"scripts/build-image.sh: expect-based Alpine install, rc.local fw_cfg key injection, iptables proxy redirect, browser variant"}
