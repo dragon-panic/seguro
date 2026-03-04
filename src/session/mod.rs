@@ -2,11 +2,11 @@ pub mod image;
 pub mod keys;
 pub mod ports;
 
-use color_eyre::eyre::Result;
+use color_eyre::eyre::{Result, WrapErr};
 use std::path::PathBuf;
 use uuid::Uuid;
 
-/// A sandboxed agent session.
+/// All runtime state for a single sandboxed agent session.
 #[derive(Debug)]
 pub struct Session {
     pub id: String,
@@ -17,6 +17,10 @@ pub struct Session {
     pub overlay_path: PathBuf,
     pub workspace_path: PathBuf,
     pub runtime_dir: PathBuf,
+    /// PID of the QEMU process (written to qemu.pid for orphan detection)
+    pub qemu_pid: Option<u32>,
+    /// PID of the virtiofsd process
+    pub virtiofsd_pid: Option<u32>,
 }
 
 impl Session {
@@ -24,14 +28,15 @@ impl Session {
         Uuid::new_v4().to_string()
     }
 
-    /// Allocate all per-session resources (ports, keys, paths).
+    /// Allocate all per-session resources (dirs, ports, keys, overlay).
     pub async fn allocate(
         workspace: PathBuf,
-        base_image: PathBuf,
+        base_image: &std::path::Path,
     ) -> Result<Self> {
         let id = Self::new_id();
         let runtime_dir = crate::config::runtime_dir().join(&id);
-        std::fs::create_dir_all(&runtime_dir)?;
+        std::fs::create_dir_all(&runtime_dir)
+            .wrap_err_with(|| format!("creating runtime dir {}", runtime_dir.display()))?;
 
         let ssh_port = ports::allocate_port().await?;
         let proxy_port = ports::allocate_port().await?;
@@ -40,7 +45,7 @@ impl Session {
         let overlay_path = runtime_dir.join("session.qcow2");
 
         keys::generate(&ssh_key_path).await?;
-        image::create_overlay(&base_image, &overlay_path).await?;
+        image::create_overlay(base_image, &overlay_path).await?;
 
         Ok(Self {
             id,
@@ -51,13 +56,38 @@ impl Session {
             overlay_path,
             workspace_path: workspace,
             runtime_dir,
+            qemu_pid: None,
+            virtiofsd_pid: None,
         })
     }
 
-    /// Clean up all session resources.
-    pub async fn cleanup(&self) -> Result<()> {
+    /// Write QEMU PID to runtime_dir/qemu.pid for orphan detection.
+    pub fn record_qemu_pid(&mut self, pid: u32) -> Result<()> {
+        self.qemu_pid = Some(pid);
+        std::fs::write(self.runtime_dir.join("qemu.pid"), pid.to_string())
+            .wrap_err("writing qemu.pid")
+    }
+
+    /// Clean up all session resources: kill child processes, remove runtime dir.
+    pub async fn cleanup(self) -> Result<()> {
+        if let Some(pid) = self.qemu_pid {
+            let _ = nix::sys::signal::kill(
+                nix::unistd::Pid::from_raw(pid as i32),
+                nix::sys::signal::Signal::SIGTERM,
+            );
+        }
+        if let Some(pid) = self.virtiofsd_pid {
+            let _ = nix::sys::signal::kill(
+                nix::unistd::Pid::from_raw(pid as i32),
+                nix::sys::signal::Signal::SIGTERM,
+            );
+        }
+        // Give processes a moment to terminate gracefully
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
         if self.runtime_dir.exists() {
-            std::fs::remove_dir_all(&self.runtime_dir)?;
+            std::fs::remove_dir_all(&self.runtime_dir)
+                .wrap_err_with(|| format!("removing runtime dir {}", self.runtime_dir.display()))?;
         }
         Ok(())
     }

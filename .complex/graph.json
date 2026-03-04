@@ -13,11 +13,11 @@
     {
       "id": "Lq6u.qJX8",
       "title": "Session management",
-      "state": "ready",
+      "state": "claimed",
       "shadowed": false,
-      "part": null,
+      "part": "claude",
       "created_at": "2026-03-04T15:17:46.785308769Z",
-      "updated_at": "2026-03-04T15:44:46.351255048Z",
+      "updated_at": "2026-03-04T15:57:58.354620469Z",
       "meta": {
         "_reason": "xSDv integrated; Qdul still needed"
       }
@@ -25,11 +25,11 @@
     {
       "id": "Lq6u.LPha",
       "title": "VM orchestration",
-      "state": "ready",
+      "state": "claimed",
       "shadowed": false,
-      "part": null,
+      "part": "claude",
       "created_at": "2026-03-04T15:17:57.938454434Z",
-      "updated_at": "2026-03-04T15:44:41.302879097Z",
+      "updated_at": "2026-03-04T15:57:58.356839756Z",
       "meta": {
         "_reason": "xSDv integrated; Qdul still needed but will claim together"
       }
@@ -37,11 +37,11 @@
     {
       "id": "Lq6u.QyyE",
       "title": "Built-in proxy server",
-      "state": "ready",
+      "state": "claimed",
       "shadowed": false,
-      "part": null,
+      "part": "claude",
       "created_at": "2026-03-04T15:18:09.519063295Z",
-      "updated_at": "2026-03-04T15:44:46.349573370Z",
+      "updated_at": "2026-03-04T15:57:58.358459981Z",
       "meta": {
         "_reason": "xSDv integrated"
       }
