@@ -34,3 +34,4 @@ dashmap           = "6"
 
 [dev-dependencies]
 tempfile = "3"
+dirs     = "5"

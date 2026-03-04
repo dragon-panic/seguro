@@ -18,9 +18,13 @@ async fn main() -> Result<()> {
         .with_env_filter(EnvFilter::from_default_env())
         .init();
 
+    let cli = Cli::parse();
+
+    // Validate CLI args that should fail before startup checks
+    cli_early_validate(&cli)?;
+
     startup_checks()?;
 
-    let cli = Cli::parse();
     match cli.command {
         Commands::Run(args) => commands::run::execute(args).await,
         Commands::Shell(args) => commands::shell::execute(args).await,
@@ -29,6 +33,18 @@ async fn main() -> Result<()> {
         Commands::Images(args) => commands::images::execute(args).await,
         Commands::ProxyLog(args) => commands::proxy_log::execute(args).await,
     }
+}
+
+fn cli_early_validate(cli: &Cli) -> Result<()> {
+    if let Commands::Run(ref args) = cli.command {
+        if matches!(args.net, cli::NetMode::DevBridge) && !args.unsafe_dev_bridge {
+            return Err(eyre!(
+                "--net dev-bridge allows the guest to reach your host LAN (UNSAFE).\n\
+                 Pass --unsafe-dev-bridge to acknowledge the risk and enable this mode."
+            ));
+        }
+    }
+    Ok(())
 }
 
 fn startup_checks() -> Result<()> {
