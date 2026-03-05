@@ -1,0 +1,1 @@
+The --tls-inspect flag is accepted by the CLI but silently ignored. Need to: integrate hudsucker or hyper-based TLS MITM into handle_connect(), use the Ca from ca.rs to sign per-domain certs, inject CA cert into guest via cloud-init user-data, and log full URL + response body for inspected connections.

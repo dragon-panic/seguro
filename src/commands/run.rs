@@ -75,8 +75,14 @@ pub async fn execute(args: RunArgs) -> Result<()> {
     let pubkey_str = pubkey_str.trim_end_matches('\n');
 
     // Create a NoCloud seed disk (FAT12, 512 KB) for cloud-init key injection.
+    // If TLS inspection is active, embed the CA cert so the guest can trust inspected certs.
     let cidata_path = session.runtime_dir.join("cidata.img");
-    vm::cidata::create_cidata_seed(&session_id, pubkey_str, &cidata_path)?;
+    vm::cidata::create_cidata_seed(
+        &session_id,
+        pubkey_str,
+        proxy.ca_cert_pem(),
+        &cidata_path,
+    )?;
 
     // Write env vars to workspace .seguro/ for the guest to pick up.
     inject_workspace_config(&workspace, &env_vars)?;

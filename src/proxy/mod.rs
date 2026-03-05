@@ -15,6 +15,7 @@ use tokio::net::TcpListener;
 
 use crate::cli::NetMode;
 use crate::config::Config;
+use ca::Ca;
 use filter::{FilterVerdict, check_ssrf, is_api_only_allowed, is_explicitly_denied};
 use log::{RequestLog, RequestRecord};
 
@@ -24,10 +25,19 @@ use log::{RequestLog, RequestRecord};
 pub struct ProxyServer {
     pub port: u16,
     _task: tokio::task::JoinHandle<()>,
+    /// PEM-encoded CA certificate if TLS inspection is active; None otherwise.
+    ca_cert_pem: Option<String>,
 }
 
 impl ProxyServer {
-    /// Bind to a random port, start the proxy task, and return the port.
+    /// Returns the PEM CA cert when --tls-inspect is active, or None.
+    pub fn ca_cert_pem(&self) -> Option<&str> {
+        self.ca_cert_pem.as_deref()
+    }
+}
+
+impl ProxyServer {
+    /// Bind to a random port, start the proxy task, return the server handle.
     pub async fn start(
         config: &Config,
         mode: &NetMode,
@@ -40,13 +50,14 @@ impl ProxyServer {
         let port = listener.local_addr()?.port();
 
         let state = Arc::new(ProxyState::new(config, mode, tls_inspect, session_dir)?);
+        let ca_cert_pem = state.ca_cert_pem().map(|s| s.to_owned());
 
         let task = tokio::spawn(async move {
             run_proxy(listener, state).await;
         });
 
         tracing::info!(port, "proxy server started");
-        Ok(Self { port, _task: task })
+        Ok(Self { port, _task: task, ca_cert_pem })
     }
 }
 
@@ -57,6 +68,8 @@ struct ProxyState {
     allow_hosts: Vec<String>,
     deny_hosts: Vec<String>,
     log: RequestLog,
+    /// Present when --tls-inspect was requested; used to sign per-domain certs.
+    ca: Option<Arc<Ca>>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -68,12 +81,18 @@ enum ProxyMode {
 }
 
 impl ProxyState {
-    fn new(config: &Config, mode: &NetMode, _tls_inspect: bool, session_dir: &Path) -> Result<Self> {
+    fn new(config: &Config, mode: &NetMode, tls_inspect: bool, session_dir: &Path) -> Result<Self> {
         let pmode = match mode {
             NetMode::AirGapped => ProxyMode::AirGapped,
             NetMode::ApiOnly => ProxyMode::ApiOnly,
             NetMode::FullOutbound => ProxyMode::FullOutbound,
             NetMode::DevBridge => ProxyMode::DevBridge,
+        };
+
+        let ca = if tls_inspect {
+            Some(Arc::new(Ca::generate().wrap_err("generating TLS inspection CA")?))
+        } else {
+            None
         };
 
         let log = RequestLog::open(session_dir).wrap_err("opening proxy log")?;
@@ -83,7 +102,13 @@ impl ProxyState {
             allow_hosts: config.proxy.api_only.allow.hosts.clone(),
             deny_hosts: config.proxy.deny.hosts.clone(),
             log,
+            ca,
         })
+    }
+
+    /// Returns the CA cert PEM if TLS inspection is active, or None.
+    pub fn ca_cert_pem(&self) -> Option<&str> {
+        self.ca.as_deref().map(|ca| ca.cert_pem())
     }
 
     /// Evaluate whether a request to `host:port` should be allowed.
@@ -232,7 +257,20 @@ async fn handle_connect(
     tracing::debug!(host = %host, port = port, "CONNECT allowed");
     state.log_request("CONNECT", &host, "-", Some(200), None, false, None);
 
-    // Upgrade and tunnel
+    // Branch: TLS inspection (MITM) or blind tunnel
+    if let Some(ca) = state.ca.clone() {
+        handle_connect_mitm(req, host, port, ca, state)
+    } else {
+        handle_connect_tunnel(req, host, port)
+    }
+}
+
+/// Blind TCP tunnel — default behaviour when --tls-inspect is off.
+fn handle_connect_tunnel(
+    req: Request<hyper::body::Incoming>,
+    host: String,
+    port: u16,
+) -> Result<Response<BoxBody>, hyper::Error> {
     tokio::task::spawn(async move {
         match hyper::upgrade::on(req).await {
             Ok(upgraded) => {
@@ -241,7 +279,9 @@ async fn handle_connect(
                     Ok(server) => {
                         let mut client_io = TokioIo::new(upgraded);
                         let mut server_io = server;
-                        if let Err(e) = tokio::io::copy_bidirectional(&mut client_io, &mut server_io).await {
+                        if let Err(e) =
+                            tokio::io::copy_bidirectional(&mut client_io, &mut server_io).await
+                        {
                             tracing::debug!("tunnel {} closed: {}", remote_addr, e);
                         }
                     }
@@ -256,6 +296,161 @@ async fn handle_connect(
         .status(StatusCode::OK)
         .body(empty_body())
         .unwrap())
+}
+
+/// TLS MITM tunnel — used when --tls-inspect is on.
+///
+/// Accepts TLS from the client using a CA-signed leaf cert, connects to the
+/// upstream server over TLS, then proxies individual HTTP/1.1 requests so
+/// that full URLs and response codes can be logged.
+fn handle_connect_mitm(
+    req: Request<hyper::body::Incoming>,
+    host: String,
+    port: u16,
+    ca: Arc<Ca>,
+    state: Arc<ProxyState>,
+) -> Result<Response<BoxBody>, hyper::Error> {
+    tokio::task::spawn(async move {
+        match hyper::upgrade::on(req).await {
+            Ok(upgraded) => {
+                if let Err(e) = mitm_tunnel(host, port, ca, upgraded, state).await {
+                    tracing::debug!("MITM tunnel error: {}", e);
+                }
+            }
+            Err(e) => tracing::warn!("CONNECT upgrade failed: {}", e),
+        }
+    });
+
+    Ok(Response::builder()
+        .status(StatusCode::OK)
+        .body(empty_body())
+        .unwrap())
+}
+
+async fn mitm_tunnel(
+    host: String,
+    port: u16,
+    ca: Arc<Ca>,
+    upgraded: hyper::upgrade::Upgraded,
+    state: Arc<ProxyState>,
+) -> color_eyre::eyre::Result<()> {
+    use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
+
+    // Sign a leaf cert for this host
+    let (cert_der, key_der) = ca.sign_for_host(&host)?;
+    let cert = CertificateDer::from(cert_der);
+    let key = PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(key_der));
+
+    let server_config = rustls::ServerConfig::builder()
+        .with_no_client_auth()
+        .with_single_cert(vec![cert], key)
+        .wrap_err("building TLS server config")?;
+    let acceptor = tokio_rustls::TlsAcceptor::from(Arc::new(server_config));
+
+    // Accept TLS from the client
+    let client_io = TokioIo::new(upgraded);
+    let tls_client = acceptor.accept(client_io).await.wrap_err("TLS accept from client")?;
+
+    // Build a reusable TLS client config for upstream connections
+    let root_store = rustls::RootCertStore {
+        roots: webpki_roots::TLS_SERVER_ROOTS.to_vec(),
+    };
+    let upstream_tls_config = Arc::new(
+        rustls::ClientConfig::builder()
+            .with_root_certificates(root_store)
+            .with_no_client_auth(),
+    );
+
+    // Serve HTTP/1.1 on the decrypted client stream, forwarding each request upstream
+    let host_arc = Arc::new(host);
+    let state_arc = Arc::clone(&state);
+    let tls_cfg = Arc::clone(&upstream_tls_config);
+
+    let service = hyper::service::service_fn(move |req: Request<hyper::body::Incoming>| {
+        let host = Arc::clone(&host_arc);
+        let state = Arc::clone(&state_arc);
+        let tls_cfg = Arc::clone(&tls_cfg);
+        async move { forward_inspected(req, &host, port, state, tls_cfg).await }
+    });
+
+    hyper::server::conn::http1::Builder::new()
+        .serve_connection(TokioIo::new(tls_client), service)
+        .await
+        .wrap_err("serving MITM HTTP/1.1")
+}
+
+/// Forward a single decrypted HTTPS request to the upstream server and return its response.
+async fn forward_inspected(
+    req: Request<hyper::body::Incoming>,
+    host: &str,
+    port: u16,
+    state: Arc<ProxyState>,
+    tls_cfg: Arc<rustls::ClientConfig>,
+) -> Result<Response<BoxBody>, hyper::Error> {
+    let path = req
+        .uri()
+        .path_and_query()
+        .map(|p| p.as_str())
+        .unwrap_or("/")
+        .to_string();
+    let method = req.method().to_string();
+
+    // Connect to upstream over TCP + TLS
+    let tcp = match tokio::net::TcpStream::connect(format!("{}:{}", host, port)).await {
+        Ok(s) => s,
+        Err(e) => {
+            tracing::warn!("upstream TCP connect failed for {}: {}", host, e);
+            state.log_request(&method, host, &path, Some(502), None, false, None);
+            return Ok(Response::builder()
+                .status(StatusCode::BAD_GATEWAY)
+                .body(full_body("502 Bad Gateway"))
+                .unwrap());
+        }
+    };
+
+    let server_name = match rustls::pki_types::ServerName::try_from(host.to_string()) {
+        Ok(n) => n,
+        Err(_) => {
+            state.log_request(&method, host, &path, Some(502), None, false, None);
+            return Ok(Response::builder()
+                .status(StatusCode::BAD_GATEWAY)
+                .body(full_body("502 Bad Gateway"))
+                .unwrap());
+        }
+    };
+
+    let connector = tokio_rustls::TlsConnector::from(tls_cfg);
+    let tls_stream = match connector.connect(server_name, tcp).await {
+        Ok(s) => s,
+        Err(e) => {
+            tracing::debug!("upstream TLS handshake failed for {}: {}", host, e);
+            state.log_request(&method, host, &path, Some(502), None, false, None);
+            return Ok(Response::builder()
+                .status(StatusCode::BAD_GATEWAY)
+                .body(full_body("502 Bad Gateway"))
+                .unwrap());
+        }
+    };
+
+    let io = TokioIo::new(tls_stream);
+    let (mut sender, conn) = hyper::client::conn::http1::handshake(io).await?;
+    tokio::spawn(conn);
+
+    match sender.send_request(req).await {
+        Ok(resp) => {
+            let status = resp.status().as_u16();
+            state.log_request(&method, host, &path, Some(status), None, false, None);
+            Ok(resp.map(|b| b.map_err(|e| e).boxed()))
+        }
+        Err(e) => {
+            tracing::warn!("upstream request failed for {}: {}", host, e);
+            state.log_request(&method, host, &path, Some(502), None, false, None);
+            Ok(Response::builder()
+                .status(StatusCode::BAD_GATEWAY)
+                .body(full_body("502 Bad Gateway"))
+                .unwrap())
+        }
+    }
 }
 
 /// Handle plain HTTP forward proxy requests.

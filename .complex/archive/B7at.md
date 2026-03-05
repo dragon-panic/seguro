@@ -1,0 +1,1 @@
+Add end-to-end integration tests that: build a minimal test image, launch seguro run with a simple command (echo, whoami), assert correct exit and output. Also test proxy filtering (air-gapped rejects, api-only allows listed hosts). Use tempfile crate for workspace. Tests live in tests/ directory.

@@ -8,6 +8,10 @@ description = "Sandbox CLI coding agents inside a QEMU VM"
 name = "seguro"
 path = "src/main.rs"
 
+[lib]
+name = "seguro"
+path = "src/lib.rs"
+
 [dependencies]
 clap              = { version = "4", features = ["derive"] }
 tokio             = { version = "1", features = ["full"] }
@@ -24,13 +28,15 @@ ed25519-dalek     = { version = "2", features = ["rand_core"] }
 ssh-key           = { version = "0.6", features = ["ed25519"] }
 uuid              = { version = "1", features = ["v4"] }
 dirs              = "5"
-nix               = { version = "0.29", features = ["process", "signal"] }
+nix               = { version = "0.29", features = ["process", "signal", "user"] }
 rand              = "0.8"
 serde_json        = "1"
 hyper-util        = { version = "0.1", features = ["client-legacy", "server-auto", "http1", "http2", "tokio"] }
 http-body-util    = "0.1"
 tokio-rustls      = "0.26"
 dashmap           = "6"
+fatfs             = "0.3"
+webpki-roots      = "0.26"
 
 [dev-dependencies]
 tempfile = "3"

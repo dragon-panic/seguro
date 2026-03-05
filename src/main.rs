@@ -1,12 +1,6 @@
-mod cli;
-mod commands;
-mod config;
-mod proxy;
-mod session;
-mod vm;
-
 use clap::Parser;
-use cli::{Cli, Commands};
+use seguro::cli::{Cli, Commands, NetMode};
+use seguro::commands;
 use color_eyre::eyre::{Result, eyre};
 use tracing_subscriber::EnvFilter;
 
@@ -37,7 +31,7 @@ async fn main() -> Result<()> {
 
 fn cli_early_validate(cli: &Cli) -> Result<()> {
     if let Commands::Run(ref args) = cli.command {
-        if matches!(args.net, cli::NetMode::DevBridge) && !args.unsafe_dev_bridge {
+        if matches!(args.net, NetMode::DevBridge) && !args.unsafe_dev_bridge {
             return Err(eyre!(
                 "--net dev-bridge allows the guest to reach your host LAN (UNSAFE).\n\
                  Pass --unsafe-dev-bridge to acknowledge the risk and enable this mode."
