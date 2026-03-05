@@ -2,11 +2,13 @@ use color_eyre::eyre::{Result, WrapErr};
 use rcgen::{CertificateParams, DistinguishedName, KeyPair};
 
 /// A self-signed CA certificate used for TLS inspection (--tls-inspect).
+#[allow(dead_code)]
 pub struct Ca {
     pub cert_pem: String,
     pub key_pem: String,
 }
 
+#[allow(dead_code)]
 impl Ca {
     /// Generate a new ephemeral CA for TLS inspection.
     pub fn generate() -> Result<Self> {

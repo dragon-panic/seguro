@@ -31,3 +31,30 @@
 {"ts":"2026-03-04T16:09:07.012490191+00:00","action":"surface","node_id":"Lq6u.aKE3","reason":"all dependencies integrated"}
 {"ts":"2026-03-04T16:09:07.014069627+00:00","action":"claim","node_id":"Lq6u.aKE3","part":"claude"}
 {"ts":"2026-03-04T16:13:12.617623440+00:00","action":"integrate","node_id":"Lq6u.aKE3","reason":"9 acceptance tests covering all PRD criteria; 1 non-KVM test passes; 8 KVM-gated tests ignored by default"}
+{"ts":"2026-03-05T22:16:16.908661144+00:00","action":"create","node_id":"Lq6u.0r2n","detail":"Fix dead code warnings"}
+{"ts":"2026-03-05T22:16:23.000660920+00:00","action":"create","node_id":"Lq6u.0r2n.t9E9","detail":"Remove unused public_key_string() in session/keys.rs"}
+{"ts":"2026-03-05T22:16:23.001755426+00:00","action":"create","node_id":"Lq6u.0r2n.uvLa","detail":"Remove unused compact() in session/image.rs"}
+{"ts":"2026-03-05T22:16:23.002424422+00:00","action":"create","node_id":"Lq6u.0r2n.f8qI","detail":"Remove unused wait() in vm/mod.rs"}
+{"ts":"2026-03-05T22:16:23.003371100+00:00","action":"create","node_id":"Lq6u.0r2n.LPRK","detail":"Remove unused workspace_path field in session/mod.rs"}
+{"ts":"2026-03-05T22:16:23.004372682+00:00","action":"create","node_id":"Lq6u.0r2n.SuZ6","detail":"Remove unused path field/method in proxy/log.rs"}
+{"ts":"2026-03-05T22:16:23.005015309+00:00","action":"create","node_id":"Lq6u.0r2n.bBuh","detail":"Wire up or remove tls_inspect stub in proxy/mod.rs and ca.rs"}
+{"ts":"2026-03-05T22:17:54.797679793+00:00","action":"surface","node_id":"Lq6u.0r2n","reason":"ready to work"}
+{"ts":"2026-03-05T22:17:54.798758469+00:00","action":"surface","node_id":"Lq6u.0r2n.t9E9","reason":"ready"}
+{"ts":"2026-03-05T22:17:54.799432615+00:00","action":"surface","node_id":"Lq6u.0r2n.uvLa","reason":"ready"}
+{"ts":"2026-03-05T22:17:54.800427093+00:00","action":"surface","node_id":"Lq6u.0r2n.f8qI","reason":"ready"}
+{"ts":"2026-03-05T22:17:54.801477956+00:00","action":"surface","node_id":"Lq6u.0r2n.LPRK","reason":"ready"}
+{"ts":"2026-03-05T22:17:54.802600274+00:00","action":"surface","node_id":"Lq6u.0r2n.SuZ6","reason":"ready"}
+{"ts":"2026-03-05T22:17:54.803539408+00:00","action":"surface","node_id":"Lq6u.0r2n.bBuh","reason":"ready"}
+{"ts":"2026-03-05T22:18:00.036727035+00:00","action":"claim","node_id":"Lq6u.0r2n.t9E9","part":"claude"}
+{"ts":"2026-03-05T22:18:00.037750487+00:00","action":"claim","node_id":"Lq6u.0r2n.uvLa","part":"claude"}
+{"ts":"2026-03-05T22:18:00.039562420+00:00","action":"claim","node_id":"Lq6u.0r2n.f8qI","part":"claude"}
+{"ts":"2026-03-05T22:18:00.040612642+00:00","action":"claim","node_id":"Lq6u.0r2n.LPRK","part":"claude"}
+{"ts":"2026-03-05T22:18:00.041969530+00:00","action":"claim","node_id":"Lq6u.0r2n.SuZ6","part":"claude"}
+{"ts":"2026-03-05T22:18:00.043071700+00:00","action":"claim","node_id":"Lq6u.0r2n.bBuh","part":"claude"}
+{"ts":"2026-03-05T22:19:59.337283362+00:00","action":"integrate","node_id":"Lq6u.0r2n.t9E9"}
+{"ts":"2026-03-05T22:19:59.338297786+00:00","action":"integrate","node_id":"Lq6u.0r2n.uvLa"}
+{"ts":"2026-03-05T22:19:59.338979146+00:00","action":"integrate","node_id":"Lq6u.0r2n.f8qI"}
+{"ts":"2026-03-05T22:19:59.339960368+00:00","action":"integrate","node_id":"Lq6u.0r2n.LPRK"}
+{"ts":"2026-03-05T22:19:59.340959534+00:00","action":"integrate","node_id":"Lq6u.0r2n.SuZ6"}
+{"ts":"2026-03-05T22:19:59.342005909+00:00","action":"integrate","node_id":"Lq6u.0r2n.bBuh"}
+{"ts":"2026-03-05T22:19:59.342668994+00:00","action":"integrate","node_id":"Lq6u.0r2n"}

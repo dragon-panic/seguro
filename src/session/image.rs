@@ -48,24 +48,6 @@ pub async fn create_overlay(base: &Path, overlay: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Compact and convert `src` to `dst` using qcow2 compression.
-pub async fn compact(src: &Path, dst: &Path) -> Result<()> {
-    let status = tokio::process::Command::new("qemu-img")
-        .args([
-            "convert", "-c", "-O", "qcow2",
-            src.to_str().unwrap(),
-            dst.to_str().unwrap(),
-        ])
-        .status()
-        .await
-        .wrap_err("launching qemu-img convert")?;
-
-    if !status.success() {
-        return Err(eyre!("qemu-img convert failed ({})", status));
-    }
-    Ok(())
-}
-
 /// Save a snapshot of the running disk image.
 ///
 /// Calls `qemu-img snapshot -c <name> <image>`.

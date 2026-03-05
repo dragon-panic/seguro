@@ -1,7 +1,7 @@
 use color_eyre::eyre::{Result, WrapErr};
 use serde::Serialize;
 use std::io::Write;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 /// A single proxy request record (one JSONL line).
@@ -71,7 +71,6 @@ fn is_leap(y: u64) -> bool {
 pub struct RequestLog(Arc<Mutex<Inner>>);
 
 struct Inner {
-    path: PathBuf,
     file: std::fs::File,
 }
 
@@ -83,7 +82,7 @@ impl RequestLog {
             .append(true)
             .open(&path)
             .wrap_err_with(|| format!("opening proxy log {}", path.display()))?;
-        Ok(Self(Arc::new(Mutex::new(Inner { path, file }))))
+        Ok(Self(Arc::new(Mutex::new(Inner { file }))))
     }
 
     pub fn write(&self, record: &RequestRecord) -> Result<()> {
@@ -92,9 +91,6 @@ impl RequestLog {
         writeln!(inner.file, "{}", line).wrap_err("writing proxy log")
     }
 
-    pub fn path(&self) -> PathBuf {
-        self.0.lock().unwrap().path.clone()
-    }
 }
 
 #[cfg(test)]

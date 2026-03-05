@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
-use color_eyre::eyre::{Result, eyre};
+use color_eyre::eyre::{Result, WrapErr, eyre};
 use tokio::signal;
 
 use crate::cli::{NetMode, RunArgs};
@@ -29,7 +29,7 @@ pub async fn execute(args: RunArgs) -> Result<()> {
     let base_image = image::locate_base(args.browser, None)?;
 
     // ── Allocate session resources ────────────────────────────────────────────
-    let mut session = Session::allocate(workspace.clone(), &base_image).await?;
+    let mut session = Session::allocate(&base_image).await?;
     let session_id = session.id.clone();
 
     tracing::info!(session_id = %session_id, ssh_port = session.ssh_port, "session allocated");
@@ -43,10 +43,8 @@ pub async fn execute(args: RunArgs) -> Result<()> {
     )
     .await?;
 
-    // Sanity check: ensure the proxy port matches what we allocated
-    assert_eq!(proxy.port, session.proxy_port,
-        "proxy port mismatch — session allocated {} but proxy bound {}",
-        session.proxy_port, proxy.port);
+    // Use the port the proxy actually bound to (pre-allocated port is released before bind)
+    session.proxy_port = proxy.port;
 
     // ── Start virtiofsd ───────────────────────────────────────────────────────
     let mut virtiofsd = Virtiofsd::start(&workspace, &session.virtiofs_sock).await?;
@@ -57,9 +55,6 @@ pub async fn execute(args: RunArgs) -> Result<()> {
     // ── Memory / SMP (bumped for --browser) ──────────────────────────────────
     let memory_mb = config.vm.memory_mb.unwrap_or(if args.browser { 4096 } else { 2048 });
     let smp = config.vm.smp.unwrap_or(if args.browser { 4 } else { 2 });
-
-    // ── SSH key ───────────────────────────────────────────────────────────────
-    let ssh_pubkey = crate::session::keys::public_key_string(&session.ssh_key_path)?;
 
     // ── Build env vars for agent ──────────────────────────────────────────────
     // Pass through ANTHROPIC_API_KEY and other common agent vars if set
@@ -73,13 +68,26 @@ pub async fn execute(args: RunArgs) -> Result<()> {
     .filter_map(|k| std::env::var(k).ok().map(|v| (k.to_string(), v)))
     .collect();
 
+    // ── SSH key ───────────────────────────────────────────────────────────────
+    let ssh_pubkey_path = session.ssh_key_path.with_extension("pub");
+    let pubkey_str = std::fs::read_to_string(&ssh_pubkey_path)
+        .wrap_err("reading SSH public key")?;
+    let pubkey_str = pubkey_str.trim_end_matches('\n');
+
+    // Create a NoCloud seed disk (FAT12, 512 KB) for cloud-init key injection.
+    let cidata_path = session.runtime_dir.join("cidata.img");
+    vm::cidata::create_cidata_seed(&session_id, pubkey_str, &cidata_path)?;
+
+    // Write env vars to workspace .seguro/ for the guest to pick up.
+    inject_workspace_config(&workspace, &env_vars)?;
+
     // ── Launch QEMU ───────────────────────────────────────────────────────────
     let qemu_params = QemuParams {
         overlay_path: &session.overlay_path,
         virtiofs_sock: &session.virtiofs_sock,
         ssh_port: session.ssh_port,
         proxy_port: session.proxy_port,
-        ssh_pubkey: &ssh_pubkey,
+        cidata_disk: &cidata_path,
         memory_mb,
         smp,
         env_vars: &env_vars,
@@ -137,6 +145,27 @@ pub async fn execute(args: RunArgs) -> Result<()> {
     agent_result
 }
 
+/// Write env vars to `workspace/.seguro/` so the guest can read them via virtiofs.
+fn inject_workspace_config(
+    workspace: &std::path::Path,
+    env_vars: &[(String, String)],
+) -> color_eyre::eyre::Result<()> {
+    use color_eyre::eyre::WrapErr;
+    let dir = workspace.join(".seguro");
+    std::fs::create_dir_all(&dir).wrap_err("creating .seguro dir in workspace")?;
+
+    if !env_vars.is_empty() {
+        let content: String = env_vars
+            .iter()
+            .map(|(k, v)| format!("{}={}\n", k, v))
+            .collect();
+        std::fs::write(dir.join("environment"), content)
+            .wrap_err("writing env vars to workspace")?;
+    }
+
+    Ok(())
+}
+
 /// Resolve the workspace directory. Returns (workspace_path, temp_dir_if_created).
 fn resolve_workspace(share: &Option<PathBuf>) -> Result<(PathBuf, Option<PathBuf>)> {
     if let Some(p) = share {
@@ -163,7 +192,9 @@ async fn run_agent(session: &Session, agent: &[String]) -> Result<()> {
         // Strict host key checking off (ephemeral guest, key changes each session)
         "-o", "StrictHostKeyChecking=no",
         "-o", "UserKnownHostsFile=/dev/null",
-        "-o", "LogLevel=ERROR",
+        "-o", "IdentitiesOnly=yes",
+        "-o", "IdentityAgent=none",
+        "-o", "LogLevel=DEBUG3",
         "agent@127.0.0.1",
     ]);
 

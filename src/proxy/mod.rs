@@ -57,8 +57,6 @@ struct ProxyState {
     allow_hosts: Vec<String>,
     deny_hosts: Vec<String>,
     log: RequestLog,
-    tls_inspect: bool,
-    ca: Option<ca::Ca>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -70,18 +68,12 @@ enum ProxyMode {
 }
 
 impl ProxyState {
-    fn new(config: &Config, mode: &NetMode, tls_inspect: bool, session_dir: &Path) -> Result<Self> {
+    fn new(config: &Config, mode: &NetMode, _tls_inspect: bool, session_dir: &Path) -> Result<Self> {
         let pmode = match mode {
             NetMode::AirGapped => ProxyMode::AirGapped,
             NetMode::ApiOnly => ProxyMode::ApiOnly,
             NetMode::FullOutbound => ProxyMode::FullOutbound,
             NetMode::DevBridge => ProxyMode::DevBridge,
-        };
-
-        let ca = if tls_inspect {
-            Some(ca::Ca::generate().wrap_err("generating TLS inspection CA")?)
-        } else {
-            None
         };
 
         let log = RequestLog::open(session_dir).wrap_err("opening proxy log")?;
@@ -91,8 +83,6 @@ impl ProxyState {
             allow_hosts: config.proxy.api_only.allow.hosts.clone(),
             deny_hosts: config.proxy.deny.hosts.clone(),
             log,
-            tls_inspect,
-            ca,
         })
     }
 

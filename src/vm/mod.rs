@@ -1,3 +1,4 @@
+pub mod cidata;
 pub mod fw_cfg;
 pub mod virtiofsd;
 
@@ -16,10 +17,6 @@ impl QemuProcess {
         self.child.id()
     }
 
-    pub async fn wait(&mut self) -> Result<std::process::ExitStatus> {
-        self.child.wait().await.wrap_err("waiting for QEMU")
-    }
-
     pub fn kill(&mut self) -> Result<()> {
         self.child.start_kill().wrap_err("killing QEMU")
     }
@@ -31,7 +28,8 @@ pub struct QemuParams<'a> {
     pub virtiofs_sock: &'a Path,
     pub ssh_port: u16,
     pub proxy_port: u16,
-    pub ssh_pubkey: &'a str,
+    /// Host path to the NoCloud seed disk (FAT12, 512 KB) for cloud-init.
+    pub cidata_disk: &'a Path,
     pub memory_mb: u32,
     pub smp: u32,
     /// Additional environment variables to inject via fw_cfg
@@ -95,16 +93,25 @@ pub async fn start_qemu(params: &QemuParams<'_>) -> Result<QemuProcess> {
     ]);
     cmd.args(["-numa", "node,memdev=mem"]);
 
-    // fw_cfg: SSH public key + env vars
-    for arg in fw_cfg::build_args(params.ssh_pubkey, params.env_vars)? {
+    // NoCloud seed disk for cloud-init (FAT12, 512 KB)
+    cmd.args([
+        "-drive",
+        &format!(
+            "file={},format=raw,if=virtio,readonly=on",
+            params.cidata_disk.display()
+        ),
+    ]);
+
+    // fw_cfg: env vars
+    for arg in fw_cfg::build_args(params.env_vars)? {
         cmd.arg(arg);
     }
 
     // Console
     if params.silent {
-        cmd.args(["-nographic", "-serial", "null"]);
+        cmd.args(["-display", "none", "-serial", "null"]);
     } else {
-        cmd.args(["-nographic", "-serial", "stdio"]);
+        cmd.args(["-display", "none", "-serial", "mon:stdio"]);
     }
 
     let child = cmd.spawn().wrap_err("launching qemu-system-x86_64")?;

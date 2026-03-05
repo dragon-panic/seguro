@@ -15,7 +15,6 @@ pub struct Session {
     pub virtiofs_sock: PathBuf,
     pub ssh_key_path: PathBuf,
     pub overlay_path: PathBuf,
-    pub workspace_path: PathBuf,
     pub runtime_dir: PathBuf,
     /// PID of the QEMU process (written to qemu.pid for orphan detection)
     pub qemu_pid: Option<u32>,
@@ -29,10 +28,7 @@ impl Session {
     }
 
     /// Allocate all per-session resources (dirs, ports, keys, overlay).
-    pub async fn allocate(
-        workspace: PathBuf,
-        base_image: &std::path::Path,
-    ) -> Result<Self> {
+    pub async fn allocate(base_image: &std::path::Path) -> Result<Self> {
         let id = Self::new_id();
         let runtime_dir = crate::config::runtime_dir().join(&id);
         std::fs::create_dir_all(&runtime_dir)
@@ -54,7 +50,6 @@ impl Session {
             virtiofs_sock,
             ssh_key_path,
             overlay_path,
-            workspace_path: workspace,
             runtime_dir,
             qemu_pid: None,
             virtiofsd_pid: None,

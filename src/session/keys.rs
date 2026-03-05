@@ -32,9 +32,3 @@ pub async fn generate(path: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Read the public key from `private_key_path`.pub in OpenSSH authorized_keys format.
-pub fn public_key_string(private_key_path: &Path) -> Result<String> {
-    let pub_path = private_key_path.with_extension("pub");
-    std::fs::read_to_string(&pub_path)
-        .wrap_err_with(|| format!("reading {}", pub_path.display()))
-}
