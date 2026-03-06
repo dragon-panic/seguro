@@ -235,8 +235,8 @@ async fn run_agent(session: &Session, agent: &[String]) -> Result<()> {
         "agent@127.0.0.1",
     ]);
 
-    // Mount workspace on connection
-    cmd.arg("mkdir -p ~/workspace && mount -t virtiofs workspace ~/workspace 2>/dev/null; cd ~/workspace;");
+    // Workspace is mounted at /home/agent/workspace by cloud-init bootcmd (as root).
+    cmd.arg("cd ~/workspace;");
 
     if agent.is_empty() {
         // Interactive shell

@@ -68,6 +68,15 @@ fn build_user_data(pubkey: &str, ca_cert_pem: Option<&str>) -> String {
     s.push_str("    ssh_authorized_keys:\n");
     s.push_str(&format!("      - {}\n", pubkey));
 
+    // Mount the virtiofs workspace as root via bootcmd (runs every boot, before SSH).
+    // The agent user cannot call mount(2) directly, so we do it here as root.
+    // bootcmd runs in cloud-init-local (very early), so the mount is ready by
+    // the time ssh.socket activates.
+    s.push_str("bootcmd:\n");
+    s.push_str("  - mkdir -p /home/agent/workspace\n");
+    s.push_str("  - chown agent:agent /home/agent/workspace\n");
+    s.push_str("  - mount -t virtiofs workspace /home/agent/workspace || true\n");
+
     // TLS inspection CA cert (only when --tls-inspect is active)
     if let Some(pem) = ca_cert_pem {
         let indented: String = pem
