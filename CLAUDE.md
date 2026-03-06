@@ -8,6 +8,10 @@ an agent that claims, works, and integrates tasks.
 1. Find available work:   cx surface --json
 2. Claim a task:          cx claim <id> --as <your-name>
 3. Do the work
+   - **BEFORE writing any code, claim the task (step 2)**
+   - If no task exists for the work, create one first, then claim it:
+     cx add <title> --body "..."
+     cx claim <new-id> --as <your-name>
 4. If you discover a sub-task while working:
                           cx new <parent-id> <title>
                           cx discover <new-id> <current-id>

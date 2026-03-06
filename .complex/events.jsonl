@@ -66,3 +66,17 @@
 {"ts":"2026-03-05T22:35:28.067907478+00:00","action":"claim","node_id":"B7at","part":"claude"}
 {"ts":"2026-03-05T22:40:04.490367613+00:00","action":"integrate","node_id":"gAMb"}
 {"ts":"2026-03-05T22:40:04.491518735+00:00","action":"integrate","node_id":"B7at"}
+{"ts":"2026-03-05T23:18:00.939035414+00:00","action":"create","node_id":"y4nF","detail":"Switch guest OS from Alpine to Ubuntu 24.04 Minimal"}
+{"ts":"2026-03-05T23:18:04.449262473+00:00","action":"create","node_id":"y4nF.QidQ","detail":"Rewrite build-image.sh for Ubuntu 24.04 Minimal"}
+{"ts":"2026-03-05T23:18:04.450703961+00:00","action":"create","node_id":"y4nF.qaa8","detail":"Update cidata.rs: add users stanza for agent user"}
+{"ts":"2026-03-05T23:18:04.452174693+00:00","action":"create","node_id":"y4nF.MiN2","detail":"Update config.rs: apk_allow -> apt_allow"}
+{"ts":"2026-03-05T23:18:04.453563542+00:00","action":"create","node_id":"y4nF.veiy","detail":"Smoke-test: seguro run -- whoami prints agent"}
+{"ts":"2026-03-05T23:18:10.266300228+00:00","action":"claim","node_id":"y4nF.QidQ","part":"claude"}
+{"ts":"2026-03-05T23:18:10.267865037+00:00","action":"claim","node_id":"y4nF.qaa8","part":"claude"}
+{"ts":"2026-03-05T23:18:10.269467897+00:00","action":"claim","node_id":"y4nF.MiN2","part":"claude"}
+{"ts":"2026-03-05T23:22:06.574741525+00:00","action":"integrate","node_id":"y4nF.QidQ"}
+{"ts":"2026-03-05T23:22:06.576512151+00:00","action":"integrate","node_id":"y4nF.qaa8"}
+{"ts":"2026-03-05T23:22:06.577704090+00:00","action":"integrate","node_id":"y4nF.MiN2"}
+{"ts":"2026-03-05T23:22:12.366658677+00:00","action":"claim","node_id":"y4nF.veiy","part":"claude"}
+{"ts":"2026-03-06T00:05:42.478411305+00:00","action":"integrate","node_id":"y4nF.veiy"}
+{"ts":"2026-03-06T00:05:42.479533986+00:00","action":"integrate","node_id":"y4nF"}

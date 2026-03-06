@@ -15,3 +15,8 @@
 {"id":"Lq6u.0r2n","title":"Fix dead code warnings","state":"integrated","shadowed":false,"part":null,"created_at":"2026-03-05T22:16:16.908406937Z","updated_at":"2026-03-05T22:19:59.342596698Z","meta":{"_reason":"ready to work"}}
 {"id":"gAMb","title":"Wire up --tls-inspect MITM in proxy","state":"integrated","shadowed":false,"part":"claude","created_at":"2026-03-05T22:29:40.601720958Z","updated_at":"2026-03-05T22:40:04.490079359Z"}
 {"id":"B7at","title":"Add integration tests for seguro run","state":"integrated","shadowed":false,"part":"claude","created_at":"2026-03-05T22:29:40.602901454Z","updated_at":"2026-03-05T22:40:04.491345058Z"}
+{"id":"y4nF.QidQ","title":"Rewrite build-image.sh for Ubuntu 24.04 Minimal","state":"integrated","shadowed":false,"part":"claude","created_at":"2026-03-05T23:18:04.448932503Z","updated_at":"2026-03-05T23:22:06.574424710Z"}
+{"id":"y4nF.qaa8","title":"Update cidata.rs: add users stanza for agent user","state":"integrated","shadowed":false,"part":"claude","created_at":"2026-03-05T23:18:04.450530946Z","updated_at":"2026-03-05T23:22:06.576319900Z"}
+{"id":"y4nF.MiN2","title":"Update config.rs: apk_allow -> apt_allow","state":"integrated","shadowed":false,"part":"claude","created_at":"2026-03-05T23:18:04.452006086Z","updated_at":"2026-03-05T23:22:06.577592761Z"}
+{"id":"y4nF.veiy","title":"Smoke-test: seguro run -- whoami prints agent","state":"integrated","shadowed":false,"part":"claude","created_at":"2026-03-05T23:18:04.453395767Z","updated_at":"2026-03-06T00:05:42.478216308Z"}
+{"id":"y4nF","title":"Switch guest OS from Alpine to Ubuntu 24.04 Minimal","state":"integrated","shadowed":false,"part":null,"created_at":"2026-03-05T23:18:00.938689615Z","updated_at":"2026-03-06T00:05:42.479438156Z"}

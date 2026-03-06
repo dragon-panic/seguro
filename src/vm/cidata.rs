@@ -6,8 +6,8 @@ use std::path::Path;
 ///
 /// The disk contains two files expected by cloud-init:
 ///   - `meta-data`  — instance-id + local-hostname
-///   - `user-data`  — #cloud-config that writes the SSH public key and,
-///                    optionally, a TLS inspection CA certificate
+///   - `user-data`  — #cloud-config that injects the SSH public key into the
+///                    agent user and, optionally, installs a TLS inspection CA
 pub fn create_cidata_seed(
     session_id: &str,
     pubkey: &str,
@@ -33,7 +33,7 @@ pub fn create_cidata_seed(
 
         // meta-data
         let meta = format!(
-            "instance-id: {}\nlocal-hostname: alpine-seguro\n",
+            "instance-id: {}\nlocal-hostname: seguro-guest\n",
             session_id
         );
         let mut f = root.create_file("meta-data").wrap_err("creating meta-data")?;
@@ -52,26 +52,35 @@ pub fn create_cidata_seed(
 }
 
 fn build_user_data(pubkey: &str, ca_cert_pem: Option<&str>) -> String {
-    let mut s = String::from("#cloud-config\nwrite_files:\n");
-
-    // SSH authorised key
-    s.push_str(&format!(
-        "  - path: /home/agent/.ssh/authorized_keys\n    owner: agent:agent\n    permissions: '0600'\n    content: |\n      {}\n",
-        pubkey
-    ));
+    // Use the cloud-init `users:` stanza to inject the SSH key into the agent
+    // user that was created during the image build phase.  cloud-init's
+    // cc_users_groups module updates ssh_authorized_keys on every boot when the
+    // instance-id changes (which it does — each session gets a fresh UUID).
+    //
+    // NOTE: do NOT use Rust line-continuation (\) inside the string — it strips
+    // all leading whitespace from the next line, destroying YAML indentation.
+    let mut s = String::new();
+    s.push_str("#cloud-config\n");
+    s.push_str("users:\n");
+    s.push_str("  - name: agent\n");
+    s.push_str("    shell: /bin/bash\n");
+    s.push_str("    lock_passwd: true\n");
+    s.push_str("    ssh_authorized_keys:\n");
+    s.push_str(&format!("      - {}\n", pubkey));
 
     // TLS inspection CA cert (only when --tls-inspect is active)
     if let Some(pem) = ca_cert_pem {
-        // Indent each line of the PEM under the YAML `content` block scalar
         let indented: String = pem
             .lines()
             .map(|l| format!("      {}\n", l))
             .collect();
-        s.push_str(&format!(
-            "  - path: /usr/local/share/ca-certificates/seguro-inspect-ca.crt\n    permissions: '0644'\n    content: |\n{indented}"
-        ));
-        // Run update-ca-certificates after the files are written
-        s.push_str("runcmd:\n  - update-ca-certificates\n");
+        s.push_str("write_files:\n");
+        s.push_str("  - path: /usr/local/share/ca-certificates/seguro-inspect-ca.crt\n");
+        s.push_str("    permissions: '0644'\n");
+        s.push_str("    content: |\n");
+        s.push_str(&indented);
+        s.push_str("runcmd:\n");
+        s.push_str("  - update-ca-certificates\n");
     }
 
     s

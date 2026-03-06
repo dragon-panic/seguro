@@ -1,24 +1,22 @@
 #!/usr/bin/env bash
-# build-image.sh — Build seguro base Alpine Linux images
+# build-image.sh — Build seguro base Ubuntu 24.04 images
 #
 # Usage: build-image.sh [--browser]
 #
 # Produces:
-#   ~/.local/share/seguro/images/base.qcow2          (~200 MB)
-#   ~/.local/share/seguro/images/base-browser.qcow2  (~450 MB, --browser)
+#   ~/.local/share/seguro/images/base.qcow2          (~500 MB)
+#   ~/.local/share/seguro/images/base-browser.qcow2  (~900 MB, --browser)
 #
-# Requirements: qemu-system-x86_64, qemu-img, expect, wget or curl
+# Requirements: qemu-system-x86_64, qemu-img, wget or curl, mkfs.vfat (dosfstools), mcopy (mtools)
 
 set -euo pipefail
 
 # ── Configuration ────────────────────────────────────────────────────────────
 
-ALPINE_VERSION="${ALPINE_VERSION:-3.21.3}"
-ALPINE_ARCH="x86_64"
-ALPINE_MAJOR_MINOR="${ALPINE_VERSION%.*}"
-ALPINE_ISO="alpine-virt-${ALPINE_VERSION}-${ALPINE_ARCH}.iso"
-ALPINE_ISO_URL="https://dl-cdn.alpinelinux.org/alpine/v${ALPINE_MAJOR_MINOR}/releases/${ALPINE_ARCH}/${ALPINE_ISO}"
-ALPINE_ISO_SHA256_URL="${ALPINE_ISO_URL%.iso}.iso.sha256"
+UBUNTU_VERSION="24.04"
+UBUNTU_CODENAME="noble"
+UBUNTU_IMG="ubuntu-${UBUNTU_VERSION}-minimal-cloudimg-amd64.img"
+UBUNTU_IMG_URL="https://cloud-images.ubuntu.com/minimal/releases/${UBUNTU_CODENAME}/release/${UBUNTU_IMG}"
 
 IMAGES_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/seguro/images"
 CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/seguro"
@@ -27,9 +25,6 @@ BUILD_BROWSER=false
 if [[ "${1:-}" == "--browser" ]]; then
     BUILD_BROWSER=true
 fi
-
-# Disk size for the working image before compaction
-WORK_DISK_SIZE="3G"
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -40,18 +35,21 @@ die()  { echo -e "${RED}error:${RESET} $*" >&2; exit 1; }
 
 # ── Dependency checks ─────────────────────────────────────────────────────────
 
-for cmd in qemu-system-x86_64 qemu-img expect; do
-    command -v "$cmd" &>/dev/null || die "'$cmd' is required but not found on \$PATH"
+for cmd in qemu-system-x86_64 qemu-img mkfs.vfat mcopy; do
+    command -v "$cmd" &>/dev/null || die \
+        "'$cmd' is required but not found on \$PATH.
+  Install dosfstools (mkfs.vfat) and mtools (mcopy):
+    Arch:   sudo pacman -S dosfstools mtools
+    Debian: sudo apt install dosfstools mtools"
 done
 
-# wget or curl for downloading
 DOWNLOADER=""
 if command -v wget &>/dev/null; then
     DOWNLOADER="wget"
 elif command -v curl &>/dev/null; then
     DOWNLOADER="curl"
 else
-    die "wget or curl is required for downloading the Alpine ISO"
+    die "wget or curl is required for downloading the Ubuntu image"
 fi
 
 # ── Setup ─────────────────────────────────────────────────────────────────────
@@ -62,286 +60,41 @@ TMP_DIR=$(mktemp -d)
 cleanup() { rm -rf "$TMP_DIR"; }
 trap cleanup EXIT
 
-# ── Download Alpine ISO ───────────────────────────────────────────────────────
+# ── Download Ubuntu Minimal cloud image ───────────────────────────────────────
 
-ISO_PATH="$CACHE_DIR/$ALPINE_ISO"
+BASE_IMG="$CACHE_DIR/$UBUNTU_IMG"
 
-if [[ ! -f "$ISO_PATH" ]]; then
-    log "Downloading Alpine Linux ${ALPINE_VERSION} virt ISO..."
+if [[ ! -f "$BASE_IMG" ]]; then
+    log "Downloading Ubuntu ${UBUNTU_VERSION} (${UBUNTU_CODENAME}) minimal cloud image..."
     if [[ "$DOWNLOADER" == "wget" ]]; then
-        wget -q --show-progress -O "$ISO_PATH.tmp" "$ALPINE_ISO_URL"
+        wget -q --show-progress -O "$BASE_IMG.tmp" "$UBUNTU_IMG_URL"
     else
-        curl -# -L -o "$ISO_PATH.tmp" "$ALPINE_ISO_URL"
+        curl -# -L -o "$BASE_IMG.tmp" "$UBUNTU_IMG_URL"
     fi
-    mv "$ISO_PATH.tmp" "$ISO_PATH"
+    mv "$BASE_IMG.tmp" "$BASE_IMG"
     log "Download complete."
 else
-    log "Using cached ISO: $ISO_PATH"
+    log "Using cached image: $BASE_IMG"
 fi
 
-# ── Alpine answers file ───────────────────────────────────────────────────────
-# Used with `setup-alpine -f` for unattended installation.
+# ── Create NoCloud seed disk ──────────────────────────────────────────────────
+# Writes meta-data and user-data into a 512 KB FAT12 image labelled "cidata".
 
-write_answers() {
-    cat > "$TMP_DIR/answers" <<'ANSWERS'
-KEYMAPOPTS="us us"
-HOSTNAMEOPTS="-n alpine-seguro"
-INTERFACESOPTS="auto lo
-iface lo inet loopback
+make_seed() {
+    local seed_path="$1"
+    local user_data_path="$2"
+    local meta_data_path="$3"
 
-auto eth0
-iface eth0 inet dhcp
-"
-DNSOPTS="-d local -n 8.8.8.8 8.8.4.4"
-TIMEZONEOPTS="-z UTC"
-PROXYOPTS="none"
-APKREPOSOPTS="-1"
-SSHDOPTS="-c openssh"
-NTPOPTS="-c none"
-DISKOPTS="-m sys /dev/vda"
-ANSWERS
-}
-
-# ── Phase 1: Install Alpine ───────────────────────────────────────────────────
-# Boots the Alpine virt ISO, logs in as root, runs setup-alpine unattended.
-
-run_install_phase() {
-    local work_disk="$1"
-
-    log "Phase 1: Installing Alpine Linux to disk..."
-    qemu-img create -f qcow2 "$work_disk" "$WORK_DISK_SIZE"
-
-    write_answers
-
-    # Encode answers as base64 so we can pass them via the serial console
-    local answers_b64
-    answers_b64=$(base64 -w0 < "$TMP_DIR/answers")
-
-    expect -f - <<EXPECT
-set timeout 300
-log_user 1
-
-spawn qemu-system-x86_64 \
-    -M q35 \
-    -cpu host -enable-kvm \
-    -m 1G -smp 2 \
-    -drive file=${work_disk},format=qcow2,if=virtio \
-    -cdrom ${ISO_PATH} \
-    -boot d \
-    -netdev user,id=net0 \
-    -device virtio-net-pci,netdev=net0 \
-    -display none -serial mon:stdio \
-    -no-reboot
-
-# Wait for the login prompt (Alpine virt ISO boots fast)
-expect {
-    timeout { send_user "\nerror: timed out waiting for login prompt\n"; exit 1 }
-    "localhost login:"
-}
-send "root\r"
-
-expect {
-    timeout { send_user "\nerror: timed out after login\n"; exit 1 }
-    "# "
-}
-
-# Configure network (DHCP should auto-start on virt ISO, but be explicit)
-send "ifconfig eth0 up && udhcpc -i eth0 -q 2>/dev/null; echo NETOK\r"
-expect {
-    timeout { send_user "\nerror: network setup timed out\n"; exit 1 }
-    "NETOK"
-}
-expect "# "
-
-# Decode answers file and run setup-alpine non-interactively
-send "echo '${answers_b64}' | base64 -d > /tmp/answers\r"
-expect "# "
-
-send "setup-alpine -f /tmp/answers\r"
-
-# setup-alpine prompts interactively for several things the answers file doesn't cover
-expect {
-    timeout { send_user "\nerror: setup-alpine timed out\n"; exit 1 }
-    "New password:"                        { send "seguro-build\r"; exp_continue }
-    "Retype password:"                     { send "seguro-build\r"; exp_continue }
-    "Setup a user?"                        { send "no\r"; exp_continue }
-    "Which SSH server"                     { send "\r"; exp_continue }
-    "Which disk(s) would you like to use?" { send "\r"; exp_continue }
-    "How would you like to use it?"        { send "sys\r"; exp_continue }
-    "WARNING: Erase the above disk(s) and continue?" { send "y\r"; exp_continue }
-    "Installation is complete"
-}
-expect "# "
-
-send "poweroff\r"
-expect eof
-EXPECT
-
-    log "Phase 1 complete."
-}
-
-# ── Phase 2: Configure packages and settings ──────────────────────────────────
-
-run_configure_phase() {
-    local work_disk="$1"
-    local variant="$2"   # "base" or "browser"
-
-    log "Phase 2: Configuring packages and settings ($variant)..."
-
-    # Build the package list
-    local pkgs="openssh git curl wget bash python3 py3-pip nodejs npm iptables"
-    if [[ "$variant" == "browser" ]]; then
-        pkgs="$pkgs chromium chromium-chromedriver"
-    fi
-
-    # Write config files to temp dir and encode as base64
-    # (avoids heredoc-inside-expect quoting nightmares)
-
-    cat > "$TMP_DIR/rc.local" <<'RCLOCAL'
-#!/bin/sh
-FW_CFG=/sys/firmware/qemu_fw_cfg/by_name
-AUTH_KEY_SRC="$FW_CFG/opt/seguro/authorized_key/raw"
-if [ -f "$AUTH_KEY_SRC" ]; then
-    install -d -m 700 -o agent -g agent /home/agent/.ssh
-    install -m 600 -o agent -g agent "$AUTH_KEY_SRC" /home/agent/.ssh/authorized_keys
-fi
-ENV_DIR="$FW_CFG/opt/seguro/env"
-if [ -d "$ENV_DIR" ]; then
-    for f in "$ENV_DIR"/*/raw; do
-        [ -f "$f" ] || continue
-        var=$(echo "$f" | sed 's|.*/opt/seguro/env/\([^/]*\)/raw|\1|')
-        val=$(cat "$f")
-        printf '%s=%s\n' "$var" "$val" >> /etc/environment
-    done
-fi
-PROXY="10.0.2.100"
-PORT="3128"
-iptables -t nat -A OUTPUT ! -d "$PROXY/24" -p tcp --dport 80  -j DNAT --to-destination "$PROXY:$PORT"
-iptables -t nat -A OUTPUT ! -d "$PROXY/24" -p tcp --dport 443 -j DNAT --to-destination "$PROXY:$PORT"
-iptables -A OUTPUT ! -d "$PROXY/24" -p tcp -j DROP
-iptables -A OUTPUT -d 10.0.2.3 -p udp --dport 53 -j ACCEPT
-iptables -A OUTPUT ! -d "$PROXY/24" -p udp -j DROP
-exit 0
-RCLOCAL
-
-    cat > "$TMP_DIR/sshd_config" <<'SSHD'
-PermitRootLogin no
-PasswordAuthentication no
-ChallengeResponseAuthentication no
-AllowUsers agent
-UsePAM no
-PrintMotd no
-Subsystem sftp /usr/lib/ssh/sftp-server
-SSHD
-
-    local rclocal_b64 sshd_b64
-    rclocal_b64=$(base64 -w0 < "$TMP_DIR/rc.local")
-    sshd_b64=$(base64 -w0 < "$TMP_DIR/sshd_config")
-
-    local browser_env=""
-    if [[ "$variant" == "browser" ]]; then
-        browser_env="echo 'PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium-browser' >> /etc/environment && echo 'PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1' >> /etc/environment"
-    fi
-
-    expect -f - <<EXPECT
-set timeout 300
-log_user 1
-
-spawn qemu-system-x86_64 \
-    -M q35 \
-    -cpu host -enable-kvm \
-    -m 1G -smp 2 \
-    -drive file=${work_disk},format=qcow2,if=virtio \
-    -netdev user,id=net0 \
-    -device virtio-net-pci,netdev=net0 \
-    -display none -serial mon:stdio \
-    -no-reboot
-
-expect {
-    timeout { send_user "\nerror: timed out waiting for login\n"; exit 1 }
-    "login:"
-}
-send "root\r"
-
-# Handle optional password prompt (set during Phase 1)
-expect {
-    timeout { send_user "\nerror: timed out waiting for shell\n"; exit 1 }
-    "Password:" { send "seguro-build\r"; expect "# " }
-    "# " {}
-}
-
-# Wait for networking
-send "until ping -c1 -W2 dl-cdn.alpinelinux.org >/dev/null 2>&1; do sleep 2; done; echo NETREADY\r"
-expect {
-    timeout { send_user "\nerror: network not ready after 120s\n"; exit 1 }
-    "NETREADY"
-}
-expect "# "
-
-# Install packages
-send "apk update && apk add --no-cache ${pkgs} && echo PKGDONE\r"
-expect {
-    timeout { send_user "\nerror: package installation timed out\n"; exit 1 }
-    "PKGDONE"
-}
-expect "# "
-
-# Create unprivileged agent user
-send "adduser -D -h /home/agent -s /bin/bash agent && echo USEROK\r"
-expect {
-    timeout { send_user "\nerror: adduser timed out\n"; exit 1 }
-    "already exists" { exp_continue }
-    "USEROK" {}
-}
-expect "# "
-
-# Mount fw_cfg on boot
-send "printf '%s\n' 'none /sys/firmware/qemu_fw_cfg/by_name 9p trans=virtio,ro,nofail 0 0' >> /etc/fstab; echo FSTABDONE\r"
-expect "FSTABDONE"
-expect "# "
-
-# Install rc.local (via base64 to avoid quoting issues)
-send "echo '${rclocal_b64}' | base64 -d > /etc/rc.local && chmod +x /etc/rc.local && rc-update add local default && echo RCLOCALDONE\r"
-expect {
-    timeout { send_user "\nerror: rc.local install timed out\n"; exit 1 }
-    "RCLOCALDONE"
-}
-expect "# "
-
-# Harden sshd_config
-send "echo '${sshd_b64}' | base64 -d > /etc/ssh/sshd_config && echo SSHDONE\r"
-expect {
-    timeout { send_user "\nerror: sshd_config install timed out\n"; exit 1 }
-    "SSHDONE"
-}
-expect "# "
-
-# Browser env vars (empty string if not browser variant)
-if {[string length "${browser_env}"] > 0} {
-    send "${browser_env} && echo ENVDONE\r"
-    expect {
-        timeout { send_user "\nerror: browser env timed out\n"; exit 1 }
-        "ENVDONE"
-    }
-    expect "# "
-}
-
-# Clean apk cache
-send "rm -rf /var/cache/apk/* && echo CLEANDONE\r"
-expect "CLEANDONE"
-expect "# "
-
-send "poweroff\r"
-expect eof
-EXPECT
-
-    log "Phase 2 complete."
+    truncate -s 512k "$seed_path"
+    mkfs.vfat -F 12 -n cidata "$seed_path" >/dev/null
+    mcopy -i "$seed_path" "$meta_data_path" "::meta-data"
+    mcopy -i "$seed_path" "$user_data_path" "::user-data"
 }
 
 # ── Build a single image variant ──────────────────────────────────────────────
 
 build_variant() {
-    local variant="$1"        # "base" or "browser"
+    local variant="$1"   # "base" or "browser"
     local output_name
 
     if [[ "$variant" == "base" ]]; then
@@ -355,8 +108,98 @@ build_variant() {
 
     log "Building $output_name..."
 
-    run_install_phase "$work_disk"
-    run_configure_phase "$work_disk" "$variant"
+    # Create a 10 G copy-on-write overlay over the downloaded cloud image.
+    # package installs need headroom; qemu-img convert will compact at the end.
+    qemu-img create -f qcow2 -b "$BASE_IMG" -F qcow2 "$work_disk" 10G
+
+    # ── meta-data ────────────────────────────────────────────────────────────
+
+    cat > "$TMP_DIR/meta-data" <<'META'
+instance-id: seguro-build
+local-hostname: seguro-build
+META
+
+    # ── user-data ────────────────────────────────────────────────────────────
+    # cloud-init runs once per instance-id, installs packages, creates the
+    # agent user, then powers the VM off.  The power_state module triggers
+    # after cloud-final completes, so QEMU exits cleanly without -no-reboot.
+
+    local extra_pkgs=""
+    if [[ "$variant" == "browser" ]]; then
+        extra_pkgs="  - chromium-browser"
+    fi
+
+    {
+        cat <<'UDHEAD'
+#cloud-config
+package_update: true
+package_upgrade: false
+packages:
+  - git
+  - curl
+  - wget
+  - python3
+  - python3-pip
+  - nodejs
+  - npm
+  - iptables
+UDHEAD
+        if [[ -n "$extra_pkgs" ]]; then
+            echo "$extra_pkgs"
+        fi
+        cat <<'UDTAIL'
+users:
+  - name: agent
+    shell: /bin/bash
+    lock_passwd: true
+    no_create_home: false
+
+ssh_pwauth: false
+
+# Make sshd start only after cloud-config has run (writes authorized_keys).
+# Without this, sshd races with cloud-init and authentication fails on first boot.
+write_files:
+  - path: /etc/systemd/system/ssh.service.d/cloud-config-wait.conf
+    permissions: '0644'
+    content: |
+      [Unit]
+      After=cloud-config.service
+      Wants=cloud-config.service
+
+power_state:
+  mode: poweroff
+  delay: now
+  timeout: 30
+UDTAIL
+        if [[ "$variant" == "browser" ]]; then
+            cat <<'UDBROWSER'
+  - path: /etc/environment.d/99-playwright.conf
+    content: |
+      PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium-browser
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
+UDBROWSER
+        fi
+    } > "$TMP_DIR/user-data"
+
+    # ── Seed disk ─────────────────────────────────────────────────────────────
+
+    local seed="$TMP_DIR/${variant}-seed.img"
+    make_seed "$seed" "$TMP_DIR/user-data" "$TMP_DIR/meta-data"
+
+    # ── Boot: cloud-init installs packages, then powers off ───────────────────
+
+    log "Running cloud-init setup (installs packages — takes a few minutes)..."
+
+    qemu-system-x86_64 \
+        -M q35 \
+        -cpu host -enable-kvm \
+        -m 2G -smp 2 \
+        -drive "file=${work_disk},format=qcow2,if=virtio" \
+        -drive "file=${seed},format=raw,if=virtio,readonly=on" \
+        -netdev user,id=net0 \
+        -device virtio-net-pci,netdev=net0 \
+        -display none -serial null \
+        -no-reboot
 
     log "Compacting $output_name..."
     qemu-img convert -c -O qcow2 "$work_disk" "$output"
@@ -368,7 +211,7 @@ build_variant() {
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 
-log "seguro image builder — Alpine Linux ${ALPINE_VERSION}"
+log "seguro image builder — Ubuntu ${UBUNTU_VERSION} (${UBUNTU_CODENAME})"
 log "Output directory: $IMAGES_DIR"
 
 build_variant "base"

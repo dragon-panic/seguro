@@ -119,9 +119,14 @@ pub async fn start_qemu(params: &QemuParams<'_>) -> Result<QemuProcess> {
     Ok(QemuProcess { child })
 }
 
-/// Poll `127.0.0.1:{port}` until a TCP connection succeeds (SSH is up)
-/// or the timeout elapses.
+/// Poll `127.0.0.1:{port}` until the SSH banner is received, or the timeout elapses.
+///
+/// Checking only TCP connectivity is insufficient: QEMU's SLIRP user-mode networking
+/// accepts TCP connections from the host before the guest sshd is listening, which
+/// causes a connection reset mid-handshake. Reading the banner ("SSH-2.0-…") confirms
+/// sshd is truly ready.
 pub async fn wait_for_ssh(port: u16, timeout: Duration) -> Result<()> {
+    use tokio::io::AsyncReadExt;
     use tokio::net::TcpStream;
     use tokio::time::Instant;
 
@@ -130,23 +135,30 @@ pub async fn wait_for_ssh(port: u16, timeout: Duration) -> Result<()> {
     let mut delay = Duration::from_millis(200);
 
     loop {
-        match TcpStream::connect(&addr).await {
-            Ok(_) => {
+        if let Ok(mut stream) = TcpStream::connect(&addr).await {
+            let mut buf = [0u8; 20];
+            let banner_ok =
+                tokio::time::timeout(Duration::from_secs(3), stream.read(&mut buf))
+                    .await
+                    .ok()
+                    .and_then(|r| r.ok())
+                    .map(|n| n >= 4 && &buf[..4] == b"SSH-")
+                    .unwrap_or(false);
+            if banner_ok {
                 tracing::info!(port, "SSH port is ready");
                 return Ok(());
             }
-            Err(_) => {
-                if Instant::now() >= deadline {
-                    return Err(eyre!(
-                        "SSH did not become available on port {} within {:?}.\n\
-                         The guest may have failed to boot. Check QEMU output.",
-                        port,
-                        timeout
-                    ));
-                }
-                tokio::time::sleep(delay).await;
-                delay = (delay * 2).min(Duration::from_secs(2));
-            }
         }
+
+        if Instant::now() >= deadline {
+            return Err(eyre!(
+                "SSH did not become available on port {} within {:?}.\n\
+                 The guest may have failed to boot. Check QEMU output.",
+                port,
+                timeout
+            ));
+        }
+        tokio::time::sleep(delay).await;
+        delay = (delay * 2).min(Duration::from_secs(2));
     }
 }

@@ -85,31 +85,31 @@ pub struct DenyConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct GuestConfig {
-    /// Packages the agent is allowed to install via `sudo apk add`.
+    /// Packages the agent is allowed to install via `sudo apt-get install`.
     #[serde(default)]
-    pub apk_allow: ApkAllowConfig,
+    pub apt_allow: AptAllowConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ApkAllowConfig {
-    #[serde(default = "default_apk_packages")]
+pub struct AptAllowConfig {
+    #[serde(default = "default_apt_packages")]
     pub packages: Vec<String>,
 }
 
-fn default_apk_packages() -> Vec<String> {
+fn default_apt_packages() -> Vec<String> {
     vec![
         "nodejs".into(),
         "npm".into(),
         "python3".into(),
-        "py3-pip".into(),
+        "python3-pip".into(),
         "git".into(),
         "curl".into(),
     ]
 }
 
-impl Default for ApkAllowConfig {
+impl Default for AptAllowConfig {
     fn default() -> Self {
-        Self { packages: default_apk_packages() }
+        Self { packages: default_apt_packages() }
     }
 }
 
@@ -189,8 +189,8 @@ impl Config {
         }
 
         // guest
-        if !other.guest.apk_allow.packages.is_empty() {
-            self.guest.apk_allow.packages = other.guest.apk_allow.packages;
+        if !other.guest.apt_allow.packages.is_empty() {
+            self.guest.apt_allow.packages = other.guest.apt_allow.packages;
         }
 
         // vm
@@ -212,7 +212,7 @@ impl Config {
 
     /// Effective SSH timeout in seconds.
     pub fn ssh_timeout(&self) -> u32 {
-        self.session.ssh_timeout_secs.unwrap_or(15)
+        self.session.ssh_timeout_secs.unwrap_or(120)
     }
 }
 
@@ -233,13 +233,12 @@ pub fn images_dir() -> PathBuf {
 }
 
 pub fn runtime_dir() -> PathBuf {
-    // Prefer /run/seguro (tmpfs on most Linux systems); fall back to /tmp
-    let run = PathBuf::from("/run/seguro");
-    if run.parent().map(|p| p.exists()).unwrap_or(false) {
-        run
-    } else {
-        std::env::temp_dir().join("seguro")
+    // XDG_RUNTIME_DIR is /run/user/{uid}/ on systemd — user-owned tmpfs, ideal for sockets/pids
+    if let Ok(xdg) = std::env::var("XDG_RUNTIME_DIR") {
+        return PathBuf::from(xdg).join("seguro");
     }
+    // Fallback: /tmp/seguro-{uid}
+    std::env::temp_dir().join(format!("seguro-{}", nix::unistd::getuid()))
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
@@ -264,10 +263,10 @@ mod tests {
     }
 
     #[test]
-    fn default_config_has_expected_apk_packages() {
+    fn default_config_has_expected_apt_packages() {
         let cfg = Config::default();
-        assert!(cfg.guest.apk_allow.packages.contains(&"git".to_string()));
-        assert!(cfg.guest.apk_allow.packages.contains(&"nodejs".to_string()));
+        assert!(cfg.guest.apt_allow.packages.contains(&"git".to_string()));
+        assert!(cfg.guest.apt_allow.packages.contains(&"nodejs".to_string()));
     }
 
     #[test]
@@ -280,12 +279,12 @@ mod tests {
     }
 
     #[test]
-    fn project_config_overrides_apk_allow() {
+    fn project_config_overrides_apt_allow() {
         let mut base = Config::default();
         let mut project = Config::default();
-        project.guest.apk_allow.packages = vec!["git".into(), "htop".into()];
+        project.guest.apt_allow.packages = vec!["git".into(), "htop".into()];
         base.merge(project);
-        assert_eq!(base.guest.apk_allow.packages, vec!["git", "htop"]);
+        assert_eq!(base.guest.apt_allow.packages, vec!["git", "htop"]);
     }
 
     #[test]
@@ -345,7 +344,7 @@ hosts = ["api.example.com"]
     #[test]
     fn ssh_timeout_default() {
         let cfg = Config::default();
-        assert_eq!(cfg.ssh_timeout(), 15);
+        assert_eq!(cfg.ssh_timeout(), 120);
     }
 
     #[test]
