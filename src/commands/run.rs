@@ -100,6 +100,11 @@ pub async fn execute(args: RunArgs) -> Result<()> {
         silent: false,
     };
 
+    // Save terminal state — QEMU's -serial mon:stdio puts the terminal into raw
+    // mode and doesn't restore it on exit, leaving the shell broken (no echo).
+    use std::os::fd::AsFd;
+    let saved_termios = nix::sys::termios::tcgetattr(std::io::stdin().as_fd()).ok();
+
     let mut qemu = vm::start_qemu(&qemu_params).await?;
     if let Some(pid) = qemu.id() {
         session.record_qemu_pid(pid)?;
@@ -135,6 +140,15 @@ pub async fn execute(args: RunArgs) -> Result<()> {
     // Kill QEMU and virtiofsd
     let _ = qemu.kill();
     let _ = virtiofsd.kill();
+
+    // Restore terminal state (QEMU raw-mode side-effect)
+    if let Some(termios) = saved_termios {
+        let _ = nix::sys::termios::tcsetattr(
+            std::io::stdin().as_fd(),
+            nix::sys::termios::SetArg::TCSANOW,
+            &termios,
+        );
+    }
 
     // Clean up runtime state unless --persistent
     if !args.persistent {
