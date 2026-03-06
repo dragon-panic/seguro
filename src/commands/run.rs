@@ -97,7 +97,9 @@ pub async fn execute(args: RunArgs) -> Result<()> {
         memory_mb,
         smp,
         env_vars: &env_vars,
-        silent: false,
+        // Silence serial console when running a command non-interactively —
+        // boot messages would otherwise interleave with command output.
+        silent: !args.agent.is_empty(),
     };
 
     // Save terminal state — QEMU's -serial mon:stdio puts the terminal into raw
