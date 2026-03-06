@@ -122,9 +122,24 @@ pub async fn execute(args: RunArgs) -> Result<()> {
     println!("SSH port:  {}", session.ssh_port);
 
     // ── Wait for SSH to become available ──────────────────────────────────────
-    println!("Waiting for guest SSH…");
+    println!("Waiting for guest SSH… (Ctrl+C to abort)");
     let ssh_timeout = Duration::from_secs(config.ssh_timeout() as u64);
-    vm::wait_for_ssh(session.ssh_port, ssh_timeout).await?;
+    tokio::select! {
+        r = vm::wait_for_ssh(session.ssh_port, ssh_timeout) => r?,
+        _ = signal::ctrl_c() => {
+            tracing::info!("Ctrl+C during SSH wait, shutting down");
+            let _ = qemu.kill();
+            let _ = virtiofsd.kill();
+            if let Some(termios) = saved_termios {
+                let _ = nix::sys::termios::tcsetattr(
+                    std::io::stdin().as_fd(),
+                    nix::sys::termios::SetArg::TCSANOW,
+                    &termios,
+                );
+            }
+            return Ok(());
+        }
+    }
     println!("Guest is ready.");
 
     // ── Execute agent command (or interactive shell) ───────────────────────────
