@@ -200,12 +200,12 @@ async fn run_agent(session: &Session, agent: &[String]) -> Result<()> {
         "-o", "UserKnownHostsFile=/dev/null",
         "-o", "IdentitiesOnly=yes",
         "-o", "IdentityAgent=none",
-        "-o", "LogLevel=DEBUG3",
+        "-o", "LogLevel=QUIET",
         "agent@127.0.0.1",
     ]);
 
     // Mount workspace on connection
-    cmd.arg("mount -t virtiofs workspace /mnt/workspace 2>/dev/null; cd /mnt/workspace;");
+    cmd.arg("mkdir -p ~/workspace && mount -t virtiofs workspace ~/workspace 2>/dev/null; cd ~/workspace;");
 
     if agent.is_empty() {
         // Interactive shell
