@@ -9,6 +9,7 @@ use crate::config::Config;
 use crate::proxy::ProxyServer;
 use crate::session::{Session, image};
 use crate::vm::{self, QemuParams};
+use crate::vm::virtiofsd::Virtiofsd;
 
 pub async fn execute(args: RunArgs) -> Result<()> {
     // ── Safety gate for dev-bridge ────────────────────────────────────────────
@@ -81,10 +82,15 @@ pub async fn execute(args: RunArgs) -> Result<()> {
     // Write env vars to workspace .seguro/ for the guest to pick up.
     inject_workspace_config(&workspace, &env_vars)?;
 
+    // ── Start virtiofsd ────────────────────────────────────────────────────────
+    let virtiofs_sock = session.runtime_dir.join("virtiofs.sock");
+    let mut virtiofsd = Virtiofsd::start(&workspace, &virtiofs_sock).await?;
+    tracing::info!(pid = virtiofsd.id(), "virtiofsd started");
+
     // ── Launch QEMU ───────────────────────────────────────────────────────────
     let qemu_params = QemuParams {
         overlay_path: &session.overlay_path,
-        workspace_path: &workspace,
+        virtiofs_sock: &virtiofs_sock,
         ssh_port: session.ssh_port,
         proxy_port: session.proxy_port,
         cidata_disk: &cidata_path,
@@ -123,6 +129,7 @@ pub async fn execute(args: RunArgs) -> Result<()> {
         _ = signal::ctrl_c() => {
             tracing::info!("Ctrl+C during SSH wait, shutting down");
             let _ = qemu.kill();
+            let _ = virtiofsd.kill();
             if let Some(termios) = saved_termios {
                 let _ = nix::sys::termios::tcsetattr(
                     std::io::stdin().as_fd(),
@@ -148,6 +155,7 @@ pub async fn execute(args: RunArgs) -> Result<()> {
     }
 
     let _ = qemu.kill();
+    let _ = virtiofsd.kill();
 
     // Restore terminal state (QEMU raw-mode side-effect)
     if let Some(termios) = saved_termios {
@@ -226,9 +234,8 @@ async fn run_agent(session: &Session, agent: &[String]) -> Result<()> {
         "agent@127.0.0.1",
     ]);
 
-    // Mount the virtio-9p workspace (QEMU-native, no daemon needed).
-    // security_model=none on the host means no uid/gid mapping; mount requires root.
-    cmd.arg("sudo mount -t 9p -o trans=virtio,version=9p2000.L workspace ~/workspace 2>/dev/null || true; cd ~/workspace 2>/dev/null || true;");
+    // Mount the virtiofs workspace if not already mounted.
+    cmd.arg("mountpoint -q ~/workspace 2>/dev/null || sudo mount -t virtiofs workspace ~/workspace; cd ~/workspace 2>/dev/null || true;");
 
     if agent.is_empty() {
         // Interactive shell

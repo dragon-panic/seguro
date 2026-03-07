@@ -257,14 +257,15 @@ mount -t virtiofs workspace /mnt/workspace
 
 Performance is close to native. The host daemon runs as your user — it cannot escalate.
 
-### Secondary: 9p (simpler, slower)
+### Rejected: virtio-9p
 
-Built into QEMU, no extra daemon. Good for read-only overlays (e.g., mounting a read-only copy of host dotfiles the agent may reference but not modify).
-
-```sh
-# QEMU flag
--virtfs local,path=/host/readonly-ref,mount_tag=ref,security_model=mapped-xattr,readonly
-```
+> **Do not use virtio-9p for the workspace share.** It was tried (commit 816fea8)
+> and reverted. Problems: mmap/file-locking quirks break real-world toolchains
+> (npm, cargo, git), `security_model=none` loses uid/gid mapping, requires
+> `sudo mount` inside the guest, and performance is 2–5× worse than virtiofs.
+> The implementation never passed the demo/02 file-sharing test.
+>
+> Keep virtiofs + virtiofsd as the only supported workspace sharing mechanism.
 
 ### Tertiary: GitHub (async coordination)
 

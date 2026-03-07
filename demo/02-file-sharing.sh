@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Demo 2: Bidirectional file sharing via virtiofs
+# Demo 2: Bidirectional file sharing via virtiofs (virtiofsd)
 # The guest can read files from the host workspace and write back.
 set -e
 
