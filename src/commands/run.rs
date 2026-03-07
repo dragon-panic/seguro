@@ -235,8 +235,9 @@ async fn run_agent(session: &Session, agent: &[String]) -> Result<()> {
         "agent@127.0.0.1",
     ]);
 
-    // Workspace is mounted at /home/agent/workspace via fstab (as root at boot).
-    cmd.arg("cd ~/workspace 2>/dev/null || true;");
+    // Mount the virtiofs workspace on-demand via passwordless sudo (configured in base image).
+    // Explicit mount here avoids boot-time timing races with fstab/systemd.
+    cmd.arg("sudo mount -t virtiofs workspace ~/workspace 2>/dev/null || true; cd ~/workspace 2>/dev/null || true;");
 
     if agent.is_empty() {
         // Interactive shell

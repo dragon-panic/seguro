@@ -157,10 +157,10 @@ users:
 ssh_pwauth: false
 
 write_files:
-  - path: /etc/fstab
-    append: true
+  - path: /etc/sudoers.d/agent-virtiofs
+    permissions: '0440'
     content: |
-      workspace  /home/agent/workspace  virtiofs  defaults,nofail  0  0
+      agent ALL=(root) NOPASSWD: /bin/mount -t virtiofs workspace /home/agent/workspace
 
 runcmd:
   - mkdir -p /home/agent/workspace
