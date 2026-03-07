@@ -80,3 +80,20 @@
 {"ts":"2026-03-05T23:22:12.366658677+00:00","action":"claim","node_id":"y4nF.veiy","part":"claude"}
 {"ts":"2026-03-06T00:05:42.478411305+00:00","action":"integrate","node_id":"y4nF.veiy"}
 {"ts":"2026-03-06T00:05:42.479533986+00:00","action":"integrate","node_id":"y4nF"}
+{"ts":"2026-03-07T19:46:19.306904032+00:00","action":"create","node_id":"Lq6u.rJKj","detail":"Fix demo/02-file-sharing.sh"}
+{"ts":"2026-03-07T19:46:33.891568037+00:00","action":"create","node_id":"Lq6u.UY1U","detail":"Verify demo/01-sandbox-identity.sh works"}
+{"ts":"2026-03-07T19:46:40.303857091+00:00","action":"create","node_id":"Lq6u.lpzr","detail":"Verify demo/03-network-isolation.sh works"}
+{"ts":"2026-03-07T19:46:41.274958334+00:00","action":"create","node_id":"Lq6u.5A3P","detail":"Ensure base image can be built"}
+{"ts":"2026-03-07T19:46:59.181270343+00:00","action":"create","node_id":"Lq6u.xgYB","detail":"Guest iptables rules for proxy + network isolation"}
+{"ts":"2026-03-07T19:47:38.223453942+00:00","action":"create","node_id":"Lq6u.akzu","detail":"Environment variable injection into guest"}
+{"ts":"2026-03-07T19:47:41.052559591+00:00","action":"create","node_id":"Lq6u.wV5e","detail":"Remove virtiofsd startup check requirement"}
+{"ts":"2026-03-07T19:47:49.742348682+00:00","action":"surface","node_id":"Lq6u.rJKj"}
+{"ts":"2026-03-07T19:47:49.743826711+00:00","action":"surface","node_id":"Lq6u.UY1U"}
+{"ts":"2026-03-07T19:47:49.745281230+00:00","action":"surface","node_id":"Lq6u.lpzr"}
+{"ts":"2026-03-07T19:47:49.746869075+00:00","action":"surface","node_id":"Lq6u.5A3P"}
+{"ts":"2026-03-07T19:47:49.748340024+00:00","action":"surface","node_id":"Lq6u.xgYB"}
+{"ts":"2026-03-07T19:47:49.749756944+00:00","action":"surface","node_id":"Lq6u.akzu"}
+{"ts":"2026-03-07T19:47:49.751422846+00:00","action":"surface","node_id":"Lq6u.wV5e"}
+{"ts":"2026-03-07T19:53:16.530751466+00:00","action":"rename","node_id":"Lq6u.rJKj","detail":"Fix demo/02-file-sharing.sh (switch back to virtiofs)"}
+{"ts":"2026-03-07T19:54:03.223765780+00:00","action":"rename","node_id":"Lq6u.wV5e","detail":"Keep virtiofsd startup check (virtiofs is back)"}
+{"ts":"2026-03-07T19:54:12.637815314+00:00","action":"claim","node_id":"Lq6u.rJKj","part":"claude","reason":"switching from 9p back to virtiofs"}
