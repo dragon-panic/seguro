@@ -235,8 +235,8 @@ async fn run_agent(session: &Session, agent: &[String]) -> Result<()> {
         "agent@127.0.0.1",
     ]);
 
-    // Workspace is mounted at /home/agent/workspace by cloud-init bootcmd (as root).
-    cmd.arg("cd ~/workspace;");
+    // Workspace is mounted at /home/agent/workspace via fstab (as root at boot).
+    cmd.arg("cd ~/workspace 2>/dev/null || true;");
 
     if agent.is_empty() {
         // Interactive shell
