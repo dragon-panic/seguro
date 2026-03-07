@@ -241,7 +241,10 @@ async fn run_agent(session: &Session, agent: &[String]) -> Result<()> {
         // Interactive shell
         cmd.arg("exec bash -l");
     } else {
-        cmd.arg(agent.join(" "));
+        // Shell-quote each argument so the remote shell preserves grouping.
+        // e.g. ["bash", "-c", "echo hello && cat foo"] → "bash -c 'echo hello && cat foo'"
+        let quoted: Vec<String> = agent.iter().map(|a| shell_quote(a)).collect();
+        cmd.arg(quoted.join(" "));
     }
 
     let status = cmd.status().await?;
@@ -249,4 +252,17 @@ async fn run_agent(session: &Session, agent: &[String]) -> Result<()> {
         tracing::info!("agent exited with status {}", status);
     }
     Ok(())
+}
+
+/// Quote a string for safe inclusion in a remote shell command.
+fn shell_quote(s: &str) -> String {
+    if s.is_empty() {
+        return "''".to_string();
+    }
+    // If the string is already safe (alphanumeric + common safe chars), pass it through.
+    if s.bytes().all(|b| b.is_ascii_alphanumeric() || b"-_./=:@".contains(&b)) {
+        return s.to_string();
+    }
+    // Wrap in single quotes, escaping any embedded single quotes.
+    format!("'{}'", s.replace('\'', "'\\''"))
 }

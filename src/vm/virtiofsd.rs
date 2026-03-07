@@ -23,7 +23,15 @@ impl Virtiofsd {
                 .wrap_err_with(|| format!("creating share dir {}", shared_dir.display()))?;
         }
 
-        let child = Command::new("virtiofsd")
+        // virtiofsd lives at /usr/lib/virtiofsd on Arch (virtiofsd package),
+        // but may be on $PATH on other distros.
+        let bin = if std::path::Path::new("/usr/lib/virtiofsd").exists() {
+            "/usr/lib/virtiofsd"
+        } else {
+            "virtiofsd"
+        };
+
+        let child = Command::new(bin)
             .args([
                 &format!("--socket-path={}", socket_path.display()),
                 &format!("--shared-dir={}", shared_dir.display()),

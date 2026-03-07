@@ -59,13 +59,17 @@ fn startup_checks() -> Result<()> {
         }
     }
 
-    // 2. virtiofsd
-    if Command::new("virtiofsd").arg("--version").output().is_err() {
-        return Err(eyre!(
-            "virtiofsd not found on $PATH.\n\
-             Install virtiofsd (e.g. `sudo pacman -S virtiofsd` or \
-             `sudo apt install virtiofsd`)."
-        ));
+    // 2. virtiofsd — lives at /usr/lib/virtiofsd on Arch, or on $PATH elsewhere
+    {
+        let found = std::path::Path::new("/usr/lib/virtiofsd").exists()
+            || Command::new("virtiofsd").arg("--version").output().is_ok();
+        if !found {
+            return Err(eyre!(
+                "virtiofsd not found.\n\
+                 Install virtiofsd (e.g. `sudo pacman -S virtiofsd` or \
+                 `sudo apt install virtiofsd`)."
+            ));
+        }
     }
 
     // 3. /dev/kvm (non-fatal — TCG fallback)

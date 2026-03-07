@@ -11,18 +11,6 @@
       "updated_at": "2026-03-04T15:17:21.649472824Z"
     },
     {
-      "id": "Lq6u.rJKj",
-      "title": "Fix demo/02-file-sharing.sh (switch back to virtiofs)",
-      "state": "claimed",
-      "shadowed": false,
-      "part": "claude",
-      "created_at": "2026-03-07T19:46:19.306708659Z",
-      "updated_at": "2026-03-07T19:54:12.637444067Z",
-      "meta": {
-        "_reason": "switching from 9p back to virtiofs"
-      }
-    },
-    {
       "id": "Lq6u.UY1U",
       "title": "Verify demo/01-sandbox-identity.sh works",
       "state": "ready",
@@ -39,15 +27,6 @@
       "part": null,
       "created_at": "2026-03-07T19:46:40.303648628Z",
       "updated_at": "2026-03-07T19:47:49.745035579Z"
-    },
-    {
-      "id": "Lq6u.5A3P",
-      "title": "Ensure base image can be built",
-      "state": "ready",
-      "shadowed": false,
-      "part": null,
-      "created_at": "2026-03-07T19:46:41.274715502Z",
-      "updated_at": "2026-03-07T19:47:49.746595554Z"
     },
     {
       "id": "Lq6u.xgYB",
@@ -69,21 +48,6 @@
     }
   ],
   "edges": [
-    {
-      "from": "Lq6u.5A3P",
-      "to": "Lq6u.rJKj",
-      "type": "blocks"
-    },
-    {
-      "from": "Lq6u.5A3P",
-      "to": "Lq6u.UY1U",
-      "type": "blocks"
-    },
-    {
-      "from": "Lq6u.5A3P",
-      "to": "Lq6u.lpzr",
-      "type": "blocks"
-    },
     {
       "from": "Lq6u.xgYB",
       "to": "Lq6u.lpzr",
