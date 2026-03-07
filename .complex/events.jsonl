@@ -97,3 +97,4 @@
 {"ts":"2026-03-07T19:53:16.530751466+00:00","action":"rename","node_id":"Lq6u.rJKj","detail":"Fix demo/02-file-sharing.sh (switch back to virtiofs)"}
 {"ts":"2026-03-07T19:54:03.223765780+00:00","action":"rename","node_id":"Lq6u.wV5e","detail":"Keep virtiofsd startup check (virtiofs is back)"}
 {"ts":"2026-03-07T19:54:12.637815314+00:00","action":"claim","node_id":"Lq6u.rJKj","part":"claude","reason":"switching from 9p back to virtiofs"}
+{"ts":"2026-03-07T20:08:30.046097642+00:00","action":"integrate","node_id":"Lq6u.wV5e","reason":"virtiofsd check already exists in main.rs:63-69, kept as-is when switching back to virtiofs"}
