@@ -234,8 +234,12 @@ async fn run_agent(session: &Session, agent: &[String]) -> Result<()> {
         "agent@127.0.0.1",
     ]);
 
-    // Mount the virtiofs workspace if not already mounted.
-    cmd.arg("mountpoint -q ~/workspace 2>/dev/null || sudo mount -t virtiofs workspace ~/workspace; cd ~/workspace 2>/dev/null || true;");
+    // Mount the virtiofs workspace if not already mounted, source env vars, and cd into workspace.
+    cmd.arg(concat!(
+        "mountpoint -q ~/workspace 2>/dev/null || sudo mount -t virtiofs workspace ~/workspace;",
+        " if [ -f ~/workspace/.seguro/environment ]; then set -a; . ~/workspace/.seguro/environment; set +a; fi;",
+        " cd ~/workspace 2>/dev/null || true;",
+    ));
 
     if agent.is_empty() {
         // Interactive shell

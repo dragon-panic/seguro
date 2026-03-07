@@ -101,3 +101,7 @@
 {"ts":"2026-03-07T20:10:05.327549970+00:00","action":"claim","node_id":"Lq6u.5A3P","part":"claude","reason":"blocker for 3 other tasks, starting here"}
 {"ts":"2026-03-07T21:26:48.162997861+00:00","action":"integrate","node_id":"Lq6u.5A3P","reason":"base.qcow2 built successfully (893M), valid qcow2 format"}
 {"ts":"2026-03-07T22:32:07.057427835+00:00","action":"integrate","node_id":"Lq6u.rJKj","reason":"virtiofsd path fixed, shell_quote added for SSH args, demo/02 passes"}
+{"ts":"2026-03-07T22:32:18.114351755+00:00","action":"claim","node_id":"Lq6u.UY1U","part":"claude","reason":"quick verification, demo/02 already works"}
+{"ts":"2026-03-07T22:32:31.537444506+00:00","action":"integrate","node_id":"Lq6u.UY1U","reason":"demo/01 passes: agent user, ubuntu kernel, python3 installed"}
+{"ts":"2026-03-07T22:32:34.501117392+00:00","action":"claim","node_id":"Lq6u.akzu","part":"claude","reason":"env var injection, option 1 from task body"}
+{"ts":"2026-03-07T22:36:06.576394744+00:00","action":"integrate","node_id":"Lq6u.akzu","reason":"env vars sourced from workspace/.seguro/environment via set -a, verified with test key"}
