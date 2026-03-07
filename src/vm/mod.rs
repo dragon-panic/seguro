@@ -25,7 +25,8 @@ impl QemuProcess {
 /// Parameters for building the QEMU command line.
 pub struct QemuParams<'a> {
     pub overlay_path: &'a Path,
-    pub virtiofs_sock: &'a Path,
+    /// Host path to the directory shared with the guest as a virtio-9p filesystem.
+    pub workspace_path: &'a Path,
     pub ssh_port: u16,
     pub proxy_port: u16,
     /// Host path to the NoCloud seed disk (FAT12, 512 KB) for cloud-init.
@@ -76,22 +77,15 @@ pub async fn start_qemu(params: &QemuParams<'_>) -> Result<QemuProcess> {
     ]);
     cmd.args(["-device", "virtio-net-pci,netdev=net0"]);
 
-    // virtio-fs shared workspace
+    // virtio-9p shared workspace (QEMU-native, no external daemon needed)
     cmd.args([
-        "-chardev",
-        &format!("socket,id=char0,path={}", params.virtiofs_sock.display()),
-    ]);
-    cmd.args(["-device", "vhost-user-fs-pci,chardev=char0,tag=workspace"]);
-
-    // Shared memory required for vhost-user-fs
-    cmd.args([
-        "-object",
+        "-fsdev",
         &format!(
-            "memory-backend-file,id=mem,size={}M,mem-path=/dev/shm,share=on",
-            params.memory_mb
+            "local,id=fsdev0,path={},security_model=none",
+            params.workspace_path.display()
         ),
     ]);
-    cmd.args(["-numa", "node,memdev=mem"]);
+    cmd.args(["-device", "virtio-9p-pci,fsdev=fsdev0,mount_tag=workspace"]);
 
     // NoCloud seed disk for cloud-init (FAT12, 512 KB)
     cmd.args([

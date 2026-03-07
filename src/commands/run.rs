@@ -8,7 +8,7 @@ use crate::cli::{NetMode, RunArgs};
 use crate::config::Config;
 use crate::proxy::ProxyServer;
 use crate::session::{Session, image};
-use crate::vm::{self, QemuParams, virtiofsd::Virtiofsd};
+use crate::vm::{self, QemuParams};
 
 pub async fn execute(args: RunArgs) -> Result<()> {
     // ── Safety gate for dev-bridge ────────────────────────────────────────────
@@ -45,12 +45,6 @@ pub async fn execute(args: RunArgs) -> Result<()> {
 
     // Use the port the proxy actually bound to (pre-allocated port is released before bind)
     session.proxy_port = proxy.port;
-
-    // ── Start virtiofsd ───────────────────────────────────────────────────────
-    let mut virtiofsd = Virtiofsd::start(&workspace, &session.virtiofs_sock).await?;
-    if let Some(pid) = virtiofsd.id() {
-        session.virtiofsd_pid = Some(pid);
-    }
 
     // ── Memory / SMP (bumped for --browser) ──────────────────────────────────
     let memory_mb = config.vm.memory_mb.unwrap_or(if args.browser { 4096 } else { 2048 });
@@ -90,7 +84,7 @@ pub async fn execute(args: RunArgs) -> Result<()> {
     // ── Launch QEMU ───────────────────────────────────────────────────────────
     let qemu_params = QemuParams {
         overlay_path: &session.overlay_path,
-        virtiofs_sock: &session.virtiofs_sock,
+        workspace_path: &workspace,
         ssh_port: session.ssh_port,
         proxy_port: session.proxy_port,
         cidata_disk: &cidata_path,
@@ -129,7 +123,6 @@ pub async fn execute(args: RunArgs) -> Result<()> {
         _ = signal::ctrl_c() => {
             tracing::info!("Ctrl+C during SSH wait, shutting down");
             let _ = qemu.kill();
-            let _ = virtiofsd.kill();
             if let Some(termios) = saved_termios {
                 let _ = nix::sys::termios::tcsetattr(
                     std::io::stdin().as_fd(),
@@ -154,9 +147,7 @@ pub async fn execute(args: RunArgs) -> Result<()> {
         _ = async { } => {}  // normal exit path falls through
     }
 
-    // Kill QEMU and virtiofsd
     let _ = qemu.kill();
-    let _ = virtiofsd.kill();
 
     // Restore terminal state (QEMU raw-mode side-effect)
     if let Some(termios) = saved_termios {
@@ -235,9 +226,9 @@ async fn run_agent(session: &Session, agent: &[String]) -> Result<()> {
         "agent@127.0.0.1",
     ]);
 
-    // Mount the virtiofs workspace on-demand via passwordless sudo (configured in base image).
-    // Explicit mount here avoids boot-time timing races with fstab/systemd.
-    cmd.arg("sudo mount -t virtiofs workspace ~/workspace 2>/dev/null || true; cd ~/workspace 2>/dev/null || true;");
+    // Mount the virtio-9p workspace (QEMU-native, no daemon needed).
+    // security_model=none on the host means no uid/gid mapping; mount requires root.
+    cmd.arg("sudo mount -t 9p -o trans=virtio,version=9p2000.L workspace ~/workspace 2>/dev/null || true; cd ~/workspace 2>/dev/null || true;");
 
     if agent.is_empty() {
         // Interactive shell

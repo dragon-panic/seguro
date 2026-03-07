@@ -157,10 +157,10 @@ users:
 ssh_pwauth: false
 
 write_files:
-  - path: /etc/sudoers.d/agent-virtiofs
+  - path: /etc/sudoers.d/agent-9p
     permissions: '0440'
     content: |
-      agent ALL=(root) NOPASSWD: /bin/mount -t virtiofs workspace /home/agent/workspace
+      agent ALL=(root) NOPASSWD: /bin/mount -t 9p -o trans=virtio,version=9p2000.L workspace /home/agent/workspace
 
 runcmd:
   - mkdir -p /home/agent/workspace

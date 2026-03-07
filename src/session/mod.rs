@@ -12,14 +12,11 @@ pub struct Session {
     pub id: String,
     pub ssh_port: u16,
     pub proxy_port: u16,
-    pub virtiofs_sock: PathBuf,
     pub ssh_key_path: PathBuf,
     pub overlay_path: PathBuf,
     pub runtime_dir: PathBuf,
     /// PID of the QEMU process (written to qemu.pid for orphan detection)
     pub qemu_pid: Option<u32>,
-    /// PID of the virtiofsd process
-    pub virtiofsd_pid: Option<u32>,
 }
 
 impl Session {
@@ -36,7 +33,6 @@ impl Session {
 
         let ssh_port = ports::allocate_port().await?;
         let proxy_port = ports::allocate_port().await?;
-        let virtiofs_sock = runtime_dir.join("virtiofs.sock");
         let ssh_key_path = runtime_dir.join("id_ed25519");
         let overlay_path = runtime_dir.join("session.qcow2");
 
@@ -47,12 +43,10 @@ impl Session {
             id,
             ssh_port,
             proxy_port,
-            virtiofs_sock,
             ssh_key_path,
             overlay_path,
             runtime_dir,
             qemu_pid: None,
-            virtiofsd_pid: None,
         })
     }
 
@@ -66,12 +60,6 @@ impl Session {
     /// Clean up all session resources: kill child processes, remove runtime dir.
     pub async fn cleanup(self) -> Result<()> {
         if let Some(pid) = self.qemu_pid {
-            let _ = nix::sys::signal::kill(
-                nix::unistd::Pid::from_raw(pid as i32),
-                nix::sys::signal::Signal::SIGTERM,
-            );
-        }
-        if let Some(pid) = self.virtiofsd_pid {
             let _ = nix::sys::signal::kill(
                 nix::unistd::Pid::from_raw(pid as i32),
                 nix::sys::signal::Signal::SIGTERM,
