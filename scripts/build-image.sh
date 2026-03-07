@@ -156,15 +156,15 @@ users:
 
 ssh_pwauth: false
 
-# Make sshd start only after cloud-config has run (writes authorized_keys).
-# Without this, sshd races with cloud-init and authentication fails on first boot.
 write_files:
-  - path: /etc/systemd/system/ssh.service.d/cloud-config-wait.conf
-    permissions: '0644'
+  - path: /etc/fstab
+    append: true
     content: |
-      [Unit]
-      After=cloud-config.service
-      Wants=cloud-config.service
+      workspace  /home/agent/workspace  virtiofs  defaults,nofail  0  0
+
+runcmd:
+  - mkdir -p /home/agent/workspace
+  - chown agent:agent /home/agent/workspace
 
 power_state:
   mode: poweroff
