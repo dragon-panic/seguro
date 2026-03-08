@@ -22,78 +22,41 @@
     {
       "id": "zGGV.J1Qg",
       "title": "Pre-install agent runtime in base image",
-      "state": "latent",
+      "state": "ready",
       "shadowed": false,
       "part": null,
       "created_at": "2026-03-08T00:37:59.329448221Z",
-      "updated_at": "2026-03-08T00:37:59.329448221Z"
+      "updated_at": "2026-03-08T01:09:47.768045322Z"
     },
     {
       "id": "zGGV.3fPA",
       "title": "Programmatic session API",
-      "state": "latent",
+      "state": "ready",
       "shadowed": false,
       "part": null,
       "created_at": "2026-03-08T00:38:13.862911245Z",
-      "updated_at": "2026-03-08T00:38:13.862911245Z"
+      "updated_at": "2026-03-08T01:09:47.769669157Z"
     },
     {
       "id": "zGGV.JP03",
       "title": "Structured output and result collection",
-      "state": "latent",
+      "state": "ready",
       "shadowed": false,
       "part": null,
       "created_at": "2026-03-08T00:38:22.445651462Z",
-      "updated_at": "2026-03-08T00:38:22.445651462Z"
-    },
-    {
-      "id": "zGGV.TLLu",
-      "title": "Concurrent multi-agent sessions",
-      "state": "latent",
-      "shadowed": false,
-      "part": null,
-      "created_at": "2026-03-08T00:38:59.660277209Z",
-      "updated_at": "2026-03-08T00:38:59.660277209Z"
+      "updated_at": "2026-03-08T01:09:47.772667024Z"
     },
     {
       "id": "zGGV.Xzlm",
       "title": "Session timeouts and resource limits",
-      "state": "latent",
+      "state": "ready",
       "shadowed": false,
       "part": null,
       "created_at": "2026-03-08T00:39:16.316291660Z",
-      "updated_at": "2026-03-08T00:39:16.316291660Z"
-    },
-    {
-      "id": "zGGV.dIhf",
-      "title": "Task injection protocol",
-      "state": "latent",
-      "shadowed": false,
-      "part": null,
-      "created_at": "2026-03-08T00:39:25.218844333Z",
-      "updated_at": "2026-03-08T00:39:25.218844333Z"
-    },
-    {
-      "id": "zGGV.Kirv",
-      "title": "Workspace git integration",
-      "state": "latent",
-      "shadowed": false,
-      "part": null,
-      "created_at": "2026-03-08T00:39:53.160010743Z",
-      "updated_at": "2026-03-08T00:39:53.160010743Z"
+      "updated_at": "2026-03-08T01:09:47.771057129Z"
     }
   ],
   "edges": [
-    {
-      "from": "zGGV.J1Qg",
-      "to": "zGGV.dIhf",
-      "type": "blocks"
-    },
-    {
-      "from": "zGGV.3fPA",
-      "to": "zGGV.TLLu",
-      "type": "blocks"
-    },
     {
       "from": "zGGV.3fPA",
       "to": "zGGV.JP03",

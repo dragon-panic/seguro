@@ -119,3 +119,10 @@
 {"ts":"2026-03-08T00:39:16.316638657+00:00","action":"create","node_id":"zGGV.Xzlm","detail":"Session timeouts and resource limits"}
 {"ts":"2026-03-08T00:39:25.219126402+00:00","action":"create","node_id":"zGGV.dIhf","detail":"Task injection protocol"}
 {"ts":"2026-03-08T00:39:53.160412199+00:00","action":"create","node_id":"zGGV.Kirv","detail":"Workspace git integration"}
+{"ts":"2026-03-08T01:09:44.387441545+00:00","action":"rm","node_id":"zGGV.TLLu","detail":"Concurrent multi-agent sessions","reason":"moved to ox project"}
+{"ts":"2026-03-08T01:09:44.388906955+00:00","action":"rm","node_id":"zGGV.dIhf","detail":"Task injection protocol","reason":"moved to ox project"}
+{"ts":"2026-03-08T01:09:44.390511530+00:00","action":"rm","node_id":"zGGV.Kirv","detail":"Workspace git integration","reason":"moved to ox project"}
+{"ts":"2026-03-08T01:09:47.768046312+00:00","action":"surface","node_id":"zGGV.J1Qg"}
+{"ts":"2026-03-08T01:09:47.769669357+00:00","action":"surface","node_id":"zGGV.3fPA"}
+{"ts":"2026-03-08T01:09:47.771057379+00:00","action":"surface","node_id":"zGGV.Xzlm"}
+{"ts":"2026-03-08T01:09:47.772667264+00:00","action":"surface","node_id":"zGGV.JP03"}
