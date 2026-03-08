@@ -454,6 +454,42 @@ Two-level config merge: user defaults then project override.
 
 Project config values override user config for that session only.
 
+### VM Profiles
+
+Profiles are named configuration blocks that define the VM image, resources, and
+environment for a class of agent. Built-in profiles (`default`, `browser`) provide
+sensible starting points. Orchestrators and users can define custom profiles in config:
+
+```toml
+[profiles.browser]
+image_suffix = "browser"       # → base-browser.qcow2
+memory_mb = 4096
+smp = 4
+
+[profiles.my-agent]
+image_suffix = "my-agent"      # → base-my-agent.qcow2
+memory_mb = 8192
+smp = 4
+packages = ["python3", "python3-venv"]
+
+[profiles.my-agent.env]
+AGENT_MODE = "autonomous"
+```
+
+Profile fields:
+
+| Field | Type | Description |
+|---|---|---|
+| `image_suffix` | string | Maps to `base-{suffix}.qcow2`. Omit for bare `base.qcow2`. |
+| `memory_mb` | integer | Guest RAM in MB. |
+| `smp` | integer | Guest vCPU count. |
+| `packages` | string[] | Apt packages to bake into the profile image at build time. |
+| `env` | table | Environment variables injected into the guest at session start. |
+
+Resolution order (later wins): built-in defaults → user config → project config → explicit CLI/API fields.
+
+The programmatic API accepts `SandboxConfig { profile: Some("my-agent".into()), .. }`.
+
 ### Startup checks
 
 On every invocation `seguro` verifies:
@@ -489,18 +525,19 @@ If `--share` is not provided, `seguro run` creates a temporary directory under `
 
 ```
 Usage:
-  seguro run [--persistent] [--share PATH] [--browser] [--net MODE] [-- AGENT...]
+  seguro run [--persistent] [--share PATH] [--profile NAME] [--browser] [--net MODE] [-- AGENT...]
   seguro shell [SESSION_ID]         # open a shell in a running session
   seguro sessions ls                # list active and saved sessions
   seguro sessions prune             # delete orphaned session overlays and /run state
   seguro snapshot save NAME         # save running session state as a named snapshot
   seguro snapshot restore NAME      # start a session from a named snapshot
   seguro images ls                  # list base images
-  seguro images build [--browser]   # rebuild base.qcow2
+  seguro images build [--profile NAME] [--browser]   # build base image for a profile
   seguro proxy log [SESSION_ID]     # tail the proxy request log for a session
 ```
 
-`--browser`: bumps RAM to 4G, SMP to 4, uses a base image that includes Chromium.
+`--profile NAME`: select a VM profile (defines image, RAM, CPU, env vars). See Configuration below.
+`--browser`: alias for `--profile browser` (bumps RAM to 4G, SMP to 4, uses browser image).
 `--net MODE`: `air-gapped` | `api-only` | `full-outbound` (default) | `dev-bridge` (requires `--unsafe-dev-bridge`).
 `AGENT`: defaults to an interactive shell if omitted.
 
