@@ -5,8 +5,11 @@ use std::path::{Path, PathBuf};
 ///
 /// Search order:
 ///   1. `config_override` if provided
-///   2. `~/.local/share/seguro/images/base.qcow2`
-pub fn locate_base(browser: bool, config_override: Option<&Path>) -> Result<PathBuf> {
+///   2. `~/.local/share/seguro/images/base[-{suffix}].qcow2`
+///
+/// The `image_suffix` comes from the resolved profile config.
+/// `None` → `base.qcow2`, `Some("browser")` → `base-browser.qcow2`, etc.
+pub fn locate_base(image_suffix: Option<&str>, config_override: Option<&Path>) -> Result<PathBuf> {
     if let Some(p) = config_override {
         if p.exists() {
             return Ok(p.to_path_buf());
@@ -14,17 +17,29 @@ pub fn locate_base(browser: bool, config_override: Option<&Path>) -> Result<Path
         return Err(eyre!("configured base image not found: {}", p.display()));
     }
 
-    let name = if browser { "base-browser.qcow2" } else { "base.qcow2" };
-    let path = crate::config::images_dir().join(name);
+    let name = image_name(image_suffix);
+    let path = crate::config::images_dir().join(&name);
     if path.exists() {
         Ok(path)
     } else {
+        let hint = match image_suffix {
+            Some(s) => format!(" --profile {s}"),
+            None => String::new(),
+        };
         Err(eyre!(
             "base image not found at {}.\n\
-             Run `seguro images build{}` to create it.",
+             Run `seguro images build{hint}` to create it.",
             path.display(),
-            if browser { " --browser" } else { "" }
         ))
+    }
+}
+
+/// Returns the image filename for a given profile suffix.
+/// `None` → `base.qcow2`, `Some("browser")` → `base-browser.qcow2`.
+pub fn image_name(suffix: Option<&str>) -> String {
+    match suffix {
+        Some(s) => format!("base-{s}.qcow2"),
+        None => "base.qcow2".into(),
     }
 }
 

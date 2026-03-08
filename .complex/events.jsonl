@@ -163,3 +163,18 @@
 {"ts":"2026-03-08T02:28:43.699586724+00:00","action":"claim","node_id":"QMjh.NEcH","part":"claude"}
 {"ts":"2026-03-08T02:29:48.291711464+00:00","action":"edit","node_id":"QMjh.NEcH"}
 {"ts":"2026-03-08T02:31:09.502492136+00:00","action":"integrate","node_id":"QMjh.NEcH","reason":"all 17 config tests pass, clippy clean, no new warnings"}
+{"ts":"2026-03-08T02:31:22.016751832+00:00","action":"surface","node_id":"QMjh.dKcg"}
+{"ts":"2026-03-08T02:31:22.018071045+00:00","action":"surface","node_id":"QMjh.Wtjo"}
+{"ts":"2026-03-08T02:31:22.019320031+00:00","action":"surface","node_id":"QMjh.8ne8"}
+{"ts":"2026-03-08T02:31:22.020529309+00:00","action":"surface","node_id":"QMjh.iWu5"}
+{"ts":"2026-03-08T02:32:13.303430920+00:00","action":"claim","node_id":"QMjh.dKcg","part":"claude"}
+{"ts":"2026-03-08T02:32:13.305130650+00:00","action":"claim","node_id":"QMjh.Wtjo","part":"claude"}
+{"ts":"2026-03-08T02:32:13.306483282+00:00","action":"claim","node_id":"QMjh.8ne8","part":"claude"}
+{"ts":"2026-03-08T02:32:13.308010539+00:00","action":"claim","node_id":"QMjh.iWu5","part":"claude"}
+{"ts":"2026-03-08T02:32:17.278400998+00:00","action":"surface","node_id":"QMjh.d2t6"}
+{"ts":"2026-03-08T02:32:17.280155427+00:00","action":"claim","node_id":"QMjh.d2t6","part":"claude"}
+{"ts":"2026-03-08T02:41:09.985161453+00:00","action":"integrate","node_id":"QMjh.dKcg"}
+{"ts":"2026-03-08T02:41:09.986448301+00:00","action":"integrate","node_id":"QMjh.Wtjo"}
+{"ts":"2026-03-08T02:41:09.987742109+00:00","action":"integrate","node_id":"QMjh.8ne8"}
+{"ts":"2026-03-08T02:41:09.989206560+00:00","action":"integrate","node_id":"QMjh.iWu5"}
+{"ts":"2026-03-08T02:41:09.990461179+00:00","action":"integrate","node_id":"QMjh.d2t6"}

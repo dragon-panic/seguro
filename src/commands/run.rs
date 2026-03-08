@@ -31,19 +31,13 @@ pub async fn execute(args: RunArgs) -> Result<()> {
     .filter_map(|k| std::env::var(k).ok().map(|v| (k.to_string(), v)))
     .collect();
 
-    // ── Memory / SMP (bumped for --browser) ────────────────────────────────
-    let memory_mb = if args.browser { 4096 } else { 2048 };
-    let smp = if args.browser { 4 } else { 2 };
-
     let config = SandboxConfig {
         workspace: workspace.clone(),
         net: args.net.clone(),
         tls_inspect: args.tls_inspect,
         env_vars,
-        memory_mb,
-        smp,
         persistent: args.persistent,
-        browser: args.browser,
+        profile: Some(args.effective_profile().to_owned()),
         timeout: args.timeout.map(Duration::from_secs),
         ..Default::default()
     };

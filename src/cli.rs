@@ -36,7 +36,11 @@ pub struct RunArgs {
     #[arg(long)]
     pub persistent: bool,
 
-    /// Enable browser support (installs Chromium, bumps RAM to 4G, SMP to 4)
+    /// VM profile to use (defines image, RAM, CPU, env). See [profiles.*] in config.
+    #[arg(long)]
+    pub profile: Option<String>,
+
+    /// Alias for --profile browser (bumps RAM to 4G, SMP to 4, uses browser image)
     #[arg(long)]
     pub browser: bool,
 
@@ -63,6 +67,32 @@ pub struct RunArgs {
     /// Agent command to run inside the VM (omit for an interactive shell)
     #[arg(last = true)]
     pub agent: Vec<String>,
+}
+
+impl RunArgs {
+    /// Resolve the effective profile name from --profile / --browser flags.
+    pub fn effective_profile(&self) -> &str {
+        if let Some(ref p) = self.profile {
+            p
+        } else if self.browser {
+            "browser"
+        } else {
+            "default"
+        }
+    }
+}
+
+impl ImagesBuildArgs {
+    /// Resolve the effective profile name from --profile / --browser flags.
+    pub fn effective_profile(&self) -> &str {
+        if let Some(ref p) = self.profile {
+            p
+        } else if self.browser {
+            "browser"
+        } else {
+            "default"
+        }
+    }
 }
 
 #[derive(ValueEnum, Clone, Debug)]
@@ -127,7 +157,11 @@ pub enum ImagesCommand {
 
 #[derive(Args)]
 pub struct ImagesBuildArgs {
-    /// Also build the browser variant (includes Chromium, ~450 MB)
+    /// Profile to build the image for. See [profiles.*] in config.
+    #[arg(long)]
+    pub profile: Option<String>,
+
+    /// Alias for --profile browser
     #[arg(long)]
     pub browser: bool,
 }

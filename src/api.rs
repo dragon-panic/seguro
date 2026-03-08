@@ -63,15 +63,17 @@ pub struct SandboxConfig {
     /// Enable TLS inspection (MITM CA injected into guest).
     pub tls_inspect: bool,
     /// Environment variables to inject into the guest session.
+    /// Profile env vars are merged first; these take priority.
     pub env_vars: Vec<(String, String)>,
-    /// Guest RAM in MB.
-    pub memory_mb: u32,
-    /// Guest vCPU count.
-    pub smp: u32,
+    /// Guest RAM in MB. If set, overrides the profile default.
+    pub memory_mb: Option<u32>,
+    /// Guest vCPU count. If set, overrides the profile default.
+    pub smp: Option<u32>,
     /// Keep session overlay and workspace after exit.
     pub persistent: bool,
-    /// Use the browser base image variant.
-    pub browser: bool,
+    /// VM profile name. Resolves image, RAM, CPU, env from config.
+    /// None means "default".
+    pub profile: Option<String>,
     /// Kill the session after this duration. None means no timeout.
     pub timeout: Option<Duration>,
     /// Where to route guest command stdout.
@@ -87,10 +89,10 @@ impl Default for SandboxConfig {
             net: NetMode::FullOutbound,
             tls_inspect: false,
             env_vars: Vec::new(),
-            memory_mb: 2048,
-            smp: 2,
+            memory_mb: None,
+            smp: None,
             persistent: false,
-            browser: false,
+            profile: None,
             timeout: None,
             stdout: OutputMode::Inherit,
             stderr: OutputMode::Inherit,
@@ -127,7 +129,26 @@ impl Sandbox {
             .wrap_err("canonicalizing workspace path")?;
 
         let file_config = Config::load(Some(&workspace))?;
-        let base_image = image::locate_base(config.browser, None)?;
+
+        // Resolve profile → image, memory, smp, env
+        let profile_name = config.profile.as_deref().unwrap_or("default");
+        let profile = file_config.profile(profile_name);
+        let base_image = image::locate_base(profile.image_suffix.as_deref(), None)?;
+        let memory_mb = config.memory_mb.unwrap_or_else(|| profile.memory_mb.unwrap_or(2048));
+        let smp = config.smp.unwrap_or_else(|| profile.smp.unwrap_or(2));
+
+        // Merge env: profile env first, then explicit env_vars override
+        let mut env_vars: Vec<(String, String)> = profile.env
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
+        for (k, v) in &config.env_vars {
+            if let Some(existing) = env_vars.iter_mut().find(|(ek, _)| ek == k) {
+                existing.1 = v.clone();
+            } else {
+                env_vars.push((k.clone(), v.clone()));
+            }
+        }
 
         let mut session = Session::allocate(&base_image).await?;
         tracing::info!(session_id = %session.id, ssh_port = session.ssh_port, "session allocated");
@@ -157,7 +178,7 @@ impl Sandbox {
         )?;
 
         // Inject env vars into workspace
-        inject_workspace_config(&workspace, &config.env_vars)?;
+        inject_workspace_config(&workspace, &env_vars)?;
 
         // Start virtiofsd
         let virtiofs_sock = session.runtime_dir.join("virtiofs.sock");
@@ -171,9 +192,9 @@ impl Sandbox {
             ssh_port: session.ssh_port,
             proxy_port: session.proxy_port,
             cidata_disk: &cidata_path,
-            memory_mb: config.memory_mb,
-            smp: config.smp,
-            env_vars: &config.env_vars,
+            memory_mb,
+            smp,
+            env_vars: &env_vars,
             silent: true,
         };
 

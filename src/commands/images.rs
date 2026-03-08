@@ -1,13 +1,13 @@
 use color_eyre::eyre::{Result, eyre};
 
-use crate::cli::{ImagesArgs, ImagesCommand};
-use crate::config::images_dir;
+use crate::cli::{ImagesArgs, ImagesBuildArgs, ImagesCommand};
+use crate::config::{Config, images_dir};
 use crate::session::image::list_images;
 
 pub async fn execute(args: ImagesArgs) -> Result<()> {
     match args.command {
         ImagesCommand::Ls => list().await,
-        ImagesCommand::Build(build_args) => build(build_args.browser).await,
+        ImagesCommand::Build(build_args) => build(build_args).await,
     }
 }
 
@@ -27,27 +27,37 @@ async fn list() -> Result<()> {
     Ok(())
 }
 
-async fn build(browser: bool) -> Result<()> {
+async fn build(args: ImagesBuildArgs) -> Result<()> {
+    let profile_name = args.effective_profile();
+    let file_config = Config::load(None)?;
+    let profile = file_config.profile(profile_name);
+
     // Locate the build script relative to the binary or via $SEGURO_SCRIPTS
     let script_path = find_build_script()?;
 
     let mut cmd = tokio::process::Command::new("bash");
     cmd.arg(&script_path);
-    if browser {
+
+    // Pass --browser for backwards compat with existing build script
+    if profile.image_suffix.as_deref() == Some("browser") {
         cmd.arg("--browser");
+    } else if let Some(ref suffix) = profile.image_suffix {
+        cmd.args(["--suffix", suffix]);
     }
 
-    tracing::info!(script = %script_path.display(), browser, "building base image");
+    tracing::info!(
+        script = %script_path.display(),
+        profile = profile_name,
+        "building base image"
+    );
 
     let status = cmd.status().await?;
     if !status.success() {
         return Err(eyre!("build-image.sh failed with exit code {}", status));
     }
 
-    println!("Base image built successfully.");
-    if browser {
-        println!("Browser image built successfully.");
-    }
+    let image_name = crate::session::image::image_name(profile.image_suffix.as_deref());
+    println!("Image '{}' built successfully.", image_name);
     Ok(())
 }
 
