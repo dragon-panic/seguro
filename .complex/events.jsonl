@@ -223,3 +223,5 @@
 {"ts":"2026-03-08T17:05:17.086543250+00:00","action":"surface","node_id":"vWsL.8gR8"}
 {"ts":"2026-03-08T17:05:20.876597742+00:00","action":"claim","node_id":"vWsL.nPY8","part":"claude","reason":"next ready task under vWsL"}
 {"ts":"2026-03-08T17:07:36.563303833+00:00","action":"integrate","node_id":"vWsL.nPY8","reason":"all tests pass, persona injection via TOML implemented"}
+{"ts":"2026-03-08T17:07:52.946183751+00:00","action":"claim","node_id":"vWsL.qeOH","part":"claude","reason":"session state persistence — enables recovery after crash"}
+{"ts":"2026-03-08T17:10:03.428849772+00:00","action":"integrate","node_id":"vWsL.qeOH","reason":"session.json persistence + Sandbox::recover() implemented, all tests pass"}

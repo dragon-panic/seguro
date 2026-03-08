@@ -114,6 +114,25 @@ use crate::session::{Session, image};
 use crate::vm::{self, QemuParams};
 use crate::vm::virtiofsd::Virtiofsd;
 
+/// Persistent session metadata written to `runtime_dir/session.json`.
+///
+/// Contains everything needed to reconnect to or restart a session.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct SessionMeta {
+    pub session_id: String,
+    pub ssh_port: u16,
+    pub proxy_port: u16,
+    pub overlay_path: PathBuf,
+    pub ssh_key_path: PathBuf,
+    pub workspace: PathBuf,
+    pub base_image: PathBuf,
+    pub memory_mb: u32,
+    pub smp: u32,
+    pub env_vars: Vec<(String, String)>,
+    pub net: String,
+    pub profile: Option<String>,
+}
+
 /// Result of executing a command in the sandbox.
 #[derive(Debug)]
 pub struct SessionResult {
@@ -324,9 +343,24 @@ impl Sandbox {
         }
 
         // Write session metadata
-        std::fs::write(session.runtime_dir.join("ssh.port"), session.ssh_port.to_string())?;
-        std::fs::write(session.runtime_dir.join("workspace.path"), workspace.display().to_string())?;
-        std::fs::write(session.runtime_dir.join("base.path"), base_image.display().to_string())?;
+        let meta = SessionMeta {
+            session_id: session.id.clone(),
+            ssh_port: session.ssh_port,
+            proxy_port: session.proxy_port,
+            overlay_path: session.overlay_path.clone(),
+            ssh_key_path: session.ssh_key_path.clone(),
+            workspace: workspace.clone(),
+            base_image: base_image.clone(),
+            memory_mb,
+            smp,
+            env_vars: env_vars.clone(),
+            net: net_mode_to_str(&config.net),
+            profile: config.profile.clone(),
+        };
+        let meta_json = serde_json::to_string_pretty(&meta)
+            .wrap_err("serializing session metadata")?;
+        std::fs::write(session.runtime_dir.join("session.json"), meta_json)
+            .wrap_err("writing session.json")?;
 
         // Wait for SSH
         let ssh_timeout = Duration::from_secs(file_config.ssh_timeout() as u64);
@@ -571,6 +605,126 @@ impl Sandbox {
     pub async fn wait(&self) -> Result<std::process::ExitStatus> {
         let mut qemu = self.qemu.lock().await;
         qemu.wait().await
+    }
+
+    /// Recover an existing session by ID.
+    ///
+    /// Reads `session.json` from the runtime directory, verifies the QEMU
+    /// process is still running, restarts the proxy and virtiofsd, and
+    /// returns a connected `Sandbox`.
+    pub async fn recover(session_id: &str) -> Result<Self> {
+        let runtime_dir = crate::config::runtime_dir().join(session_id);
+        if !runtime_dir.exists() {
+            return Err(eyre!("no session found: {}", session_id));
+        }
+
+        let meta_path = runtime_dir.join("session.json");
+        let meta_str = std::fs::read_to_string(&meta_path)
+            .wrap_err_with(|| format!("reading {}", meta_path.display()))?;
+        let meta: SessionMeta = serde_json::from_str(&meta_str)
+            .wrap_err("parsing session.json")?;
+
+        let net = str_to_net_mode(&meta.net)?;
+        let file_config = Config::load(Some(&meta.workspace))?;
+        let ssh_timeout = Duration::from_secs(file_config.ssh_timeout() as u64);
+
+        // Re-inject workspace config (env vars, credentials)
+        inject_workspace_config(&meta.workspace, &meta.env_vars, None)?;
+
+        // Start proxy
+        let proxy = ProxyServer::start(
+            &file_config,
+            &net,
+            false, // TLS inspect not persisted — could be added later
+            &runtime_dir,
+        ).await?;
+
+        // Start virtiofsd
+        let virtiofs_sock = runtime_dir.join("virtiofs.sock");
+        let virtiofsd = Virtiofsd::start(&meta.workspace, &virtiofs_sock).await?;
+
+        // Check if QEMU is still running, otherwise re-launch
+        let pid_file = runtime_dir.join("qemu.pid");
+        let qemu = if crate::session::image::is_qemu_running(&pid_file) {
+            // QEMU is alive — we can't take ownership of an existing process
+            // via tokio::process::Child, so re-launch with the same overlay
+            tracing::info!("existing QEMU process found, re-launching for ownership");
+            // Kill the old one first
+            if let Ok(content) = std::fs::read_to_string(&pid_file) {
+                if let Ok(pid) = content.trim().parse::<i32>() {
+                    let _ = nix::sys::signal::kill(
+                        nix::unistd::Pid::from_raw(pid),
+                        nix::sys::signal::Signal::SIGTERM,
+                    );
+                    tokio::time::sleep(Duration::from_millis(500)).await;
+                }
+            }
+            let params = QemuParams {
+                overlay_path: &meta.overlay_path,
+                virtiofs_sock: &virtiofs_sock,
+                ssh_port: meta.ssh_port,
+                proxy_port: proxy.port,
+                cidata_disk: &runtime_dir.join("cidata.img"),
+                memory_mb: meta.memory_mb,
+                smp: meta.smp,
+                env_vars: &meta.env_vars,
+                silent: true,
+            };
+            vm::start_qemu(&params).await?
+        } else {
+            // QEMU is dead — re-launch
+            let params = QemuParams {
+                overlay_path: &meta.overlay_path,
+                virtiofs_sock: &virtiofs_sock,
+                ssh_port: meta.ssh_port,
+                proxy_port: proxy.port,
+                cidata_disk: &runtime_dir.join("cidata.img"),
+                memory_mb: meta.memory_mb,
+                smp: meta.smp,
+                env_vars: &meta.env_vars,
+                silent: true,
+            };
+            vm::start_qemu(&params).await?
+        };
+
+        if let Some(pid) = qemu.id() {
+            std::fs::write(runtime_dir.join("qemu.pid"), pid.to_string())
+                .wrap_err("updating qemu.pid")?;
+        }
+
+        // Wait for SSH
+        vm::wait_for_ssh(meta.ssh_port, ssh_timeout).await?;
+
+        let session = Session {
+            id: meta.session_id,
+            ssh_port: meta.ssh_port,
+            proxy_port: proxy.port,
+            ssh_key_path: meta.ssh_key_path,
+            overlay_path: meta.overlay_path,
+            runtime_dir,
+            qemu_pid: qemu.id(),
+        };
+
+        Ok(Self {
+            session,
+            qemu: Arc::new(Mutex::new(qemu)),
+            virtiofsd,
+            _proxy: proxy,
+            net,
+            timeout: None,
+            stdout: OutputMode::Inherit,
+            stderr: OutputMode::Inherit,
+            shutdown: Arc::new(Notify::new()),
+            _monitor: None,
+        })
+    }
+
+    /// Read the persisted session metadata.
+    pub fn meta(&self) -> Result<SessionMeta> {
+        let path = self.session.runtime_dir.join("session.json");
+        let content = std::fs::read_to_string(&path)
+            .wrap_err("reading session.json")?;
+        serde_json::from_str(&content).wrap_err("parsing session.json")
     }
 }
 
@@ -851,6 +1005,25 @@ fn iptables_preamble(net: &NetMode) -> String {
     }
 }
 
+fn net_mode_to_str(mode: &NetMode) -> String {
+    match mode {
+        NetMode::AirGapped => "air-gapped".into(),
+        NetMode::ApiOnly => "api-only".into(),
+        NetMode::FullOutbound => "full-outbound".into(),
+        NetMode::DevBridge => "dev-bridge".into(),
+    }
+}
+
+fn str_to_net_mode(s: &str) -> Result<NetMode> {
+    match s {
+        "air-gapped" => Ok(NetMode::AirGapped),
+        "api-only" => Ok(NetMode::ApiOnly),
+        "full-outbound" => Ok(NetMode::FullOutbound),
+        "dev-bridge" => Ok(NetMode::DevBridge),
+        _ => Err(eyre!("unknown net mode in session.json: {}", s)),
+    }
+}
+
 /// Quote a string for safe inclusion in a remote shell command.
 fn shell_quote(s: &str) -> String {
     if s.is_empty() {
@@ -929,5 +1102,46 @@ system_prompt = "Just a prompt."
         assert_eq!(policy.strategy, RestartStrategy::Never);
         assert_eq!(policy.max_restarts, 3);
         assert_eq!(policy.backoff.len(), 3);
+    }
+
+    #[test]
+    fn session_meta_roundtrip() {
+        let meta = SessionMeta {
+            session_id: "test-123".into(),
+            ssh_port: 2222,
+            proxy_port: 3128,
+            overlay_path: "/tmp/overlay.qcow2".into(),
+            ssh_key_path: "/tmp/id_ed25519".into(),
+            workspace: "/home/user/project".into(),
+            base_image: "/home/user/.local/share/seguro/images/base.qcow2".into(),
+            memory_mb: 2048,
+            smp: 2,
+            env_vars: vec![("KEY".into(), "value".into())],
+            net: "full-outbound".into(),
+            profile: Some("default".into()),
+        };
+
+        let json = serde_json::to_string_pretty(&meta).unwrap();
+        let parsed: SessionMeta = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(parsed.session_id, "test-123");
+        assert_eq!(parsed.ssh_port, 2222);
+        assert_eq!(parsed.memory_mb, 2048);
+        assert_eq!(parsed.env_vars, vec![("KEY".into(), "value".into())]);
+        assert_eq!(parsed.net, "full-outbound");
+    }
+
+    #[test]
+    fn net_mode_str_roundtrip() {
+        for (mode, s) in [
+            (NetMode::AirGapped, "air-gapped"),
+            (NetMode::ApiOnly, "api-only"),
+            (NetMode::FullOutbound, "full-outbound"),
+            (NetMode::DevBridge, "dev-bridge"),
+        ] {
+            assert_eq!(net_mode_to_str(&mode), s);
+            assert!(matches!(str_to_net_mode(s), Ok(_)));
+        }
+        assert!(str_to_net_mode("invalid").is_err());
     }
 }

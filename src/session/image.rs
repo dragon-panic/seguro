@@ -138,7 +138,7 @@ pub fn list_orphaned_overlays(runtime_dir: &Path) -> Result<Vec<PathBuf>> {
     Ok(orphans)
 }
 
-fn is_qemu_running(pid_file: &Path) -> bool {
+pub fn is_qemu_running(pid_file: &Path) -> bool {
     let Ok(content) = std::fs::read_to_string(pid_file) else { return false; };
     let Ok(pid) = content.trim().parse::<i32>() else { return false; };
     // Check /proc/<pid>/comm for "qemu-system-x86" to confirm it's still our process
