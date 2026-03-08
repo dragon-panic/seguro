@@ -36,15 +36,6 @@
       "part": null,
       "created_at": "2026-03-08T16:27:15.094294522Z",
       "updated_at": "2026-03-08T16:27:15.094294522Z"
-    },
-    {
-      "id": "2QAB",
-      "title": "Orchestrator support — gastown-informed gaps",
-      "state": "latent",
-      "shadowed": false,
-      "part": null,
-      "created_at": "2026-03-08T17:23:46.056996533Z",
-      "updated_at": "2026-03-08T17:23:46.056996533Z"
     }
   ],
   "edges": []
