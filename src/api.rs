@@ -239,6 +239,9 @@ impl Sandbox {
     /// An empty `command` slice starts an interactive shell (typically
     /// only useful from the CLI, not programmatic use).
     pub async fn exec(&self, command: &[String]) -> Result<SessionResult> {
+        let interactive = command.is_empty();
+        let allocate_tty = matches!(self.stdout, OutputMode::Inherit);
+
         let mut cmd = tokio::process::Command::new("ssh");
         cmd.args([
             "-i", self.session.ssh_key_path.to_str().unwrap(),
@@ -248,8 +251,11 @@ impl Sandbox {
             "-o", "IdentitiesOnly=yes",
             "-o", "IdentityAgent=none",
             "-o", "LogLevel=QUIET",
-            "agent@127.0.0.1",
         ]);
+        if allocate_tty {
+            cmd.arg("-t"); // allocate PTY for interactive commands
+        }
+        cmd.arg("agent@127.0.0.1");
 
         // Route stdout/stderr per config
         match self.stdout {
@@ -271,7 +277,7 @@ impl Sandbox {
         // Network isolation preamble
         cmd.arg(iptables_preamble(&self.net));
 
-        if command.is_empty() {
+        if interactive {
             cmd.arg("exec bash -l");
         } else {
             let quoted: Vec<String> = command.iter().map(|a| shell_quote(a)).collect();
