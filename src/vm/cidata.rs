@@ -68,13 +68,20 @@ fn build_user_data(pubkey: &str, ca_cert_pem: Option<&str>) -> String {
     s.push_str("    ssh_authorized_keys:\n");
     s.push_str(&format!("      - {}\n", pubkey));
 
+    // write_files: always needed for iptables sudoers, optionally for TLS CA cert
+    s.push_str("write_files:\n");
+    // Allow agent to run iptables via sudo (for network isolation rules)
+    s.push_str("  - path: /etc/sudoers.d/agent-iptables\n");
+    s.push_str("    permissions: '0440'\n");
+    s.push_str("    content: |\n");
+    s.push_str("      agent ALL=(root) NOPASSWD: /usr/sbin/iptables\n");
+
     // TLS inspection CA cert (only when --tls-inspect is active)
     if let Some(pem) = ca_cert_pem {
         let indented: String = pem
             .lines()
             .map(|l| format!("      {}\n", l))
             .collect();
-        s.push_str("write_files:\n");
         s.push_str("  - path: /usr/local/share/ca-certificates/seguro-inspect-ca.crt\n");
         s.push_str("    permissions: '0644'\n");
         s.push_str("    content: |\n");

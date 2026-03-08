@@ -105,3 +105,7 @@
 {"ts":"2026-03-07T22:32:31.537444506+00:00","action":"integrate","node_id":"Lq6u.UY1U","reason":"demo/01 passes: agent user, ubuntu kernel, python3 installed"}
 {"ts":"2026-03-07T22:32:34.501117392+00:00","action":"claim","node_id":"Lq6u.akzu","part":"claude","reason":"env var injection, option 1 from task body"}
 {"ts":"2026-03-07T22:36:06.576394744+00:00","action":"integrate","node_id":"Lq6u.akzu","reason":"env vars sourced from workspace/.seguro/environment via set -a, verified with test key"}
+{"ts":"2026-03-07T22:37:45.408154159+00:00","action":"claim","node_id":"Lq6u.xgYB","part":"claude","reason":"implementing iptables rules and proxy env vars for network isolation"}
+{"ts":"2026-03-08T00:17:35.468623023+00:00","action":"integrate","node_id":"Lq6u.xgYB","reason":"iptables rules + proxy env vars working, all 3 demos pass"}
+{"ts":"2026-03-08T00:17:39.347101532+00:00","action":"claim","node_id":"Lq6u.lpzr","part":"claude","reason":"demo/03 already verified above"}
+{"ts":"2026-03-08T00:17:39.348518441+00:00","action":"integrate","node_id":"Lq6u.lpzr","reason":"demo/03 passes: air-gapped=BLOCKED, full-outbound=HTTP 200"}

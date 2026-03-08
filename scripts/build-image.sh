@@ -161,6 +161,10 @@ write_files:
     permissions: '0440'
     content: |
       agent ALL=(root) NOPASSWD: /bin/mount -t virtiofs workspace /home/agent/workspace
+  - path: /etc/sudoers.d/agent-iptables
+    permissions: '0440'
+    content: |
+      agent ALL=(root) NOPASSWD: /usr/sbin/iptables
 
 runcmd:
   - mkdir -p /home/agent/workspace

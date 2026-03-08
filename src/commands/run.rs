@@ -57,7 +57,6 @@ pub async fn execute(args: RunArgs) -> Result<()> {
         "ANTHROPIC_API_KEY",
         "OPENAI_API_KEY",
         "GITHUB_TOKEN",
-        "HOME",       // will be overridden inside guest, but useful to pass
     ]
     .iter()
     .filter_map(|k| std::env::var(k).ok().map(|v| (k.to_string(), v)))
@@ -143,7 +142,7 @@ pub async fn execute(args: RunArgs) -> Result<()> {
     println!("Guest is ready.");
 
     // ── Execute agent command (or interactive shell) ───────────────────────────
-    let agent_result = run_agent(&session, &args.agent).await;
+    let agent_result = run_agent(&session, &args.agent, &args.net).await;
 
     // ── Graceful shutdown ─────────────────────────────────────────────────────
     // Also handle Ctrl+C racing with normal exit
@@ -220,7 +219,7 @@ fn resolve_workspace(share: &Option<PathBuf>) -> Result<(PathBuf, Option<PathBuf
 }
 
 /// SSH into the guest and execute the agent command (or an interactive shell).
-async fn run_agent(session: &Session, agent: &[String]) -> Result<()> {
+async fn run_agent(session: &Session, agent: &[String], net: &NetMode) -> Result<()> {
     let mut cmd = tokio::process::Command::new("ssh");
     cmd.args([
         "-i", session.ssh_key_path.to_str().unwrap(),
@@ -241,6 +240,9 @@ async fn run_agent(session: &Session, agent: &[String]) -> Result<()> {
         " cd ~/workspace 2>/dev/null || true;",
     ));
 
+    // Apply network isolation rules and proxy env vars based on net mode.
+    cmd.arg(iptables_preamble(net));
+
     if agent.is_empty() {
         // Interactive shell
         cmd.arg("exec bash -l");
@@ -256,6 +258,49 @@ async fn run_agent(session: &Session, agent: &[String]) -> Result<()> {
         tracing::info!("agent exited with status {}", status);
     }
     Ok(())
+}
+
+/// Build the shell preamble that sets up iptables rules and proxy env vars.
+///
+/// Executed as part of the SSH remote command before the agent runs.
+/// Uses `sudo iptables` since the agent user has no root privileges.
+fn iptables_preamble(net: &NetMode) -> String {
+    // Use sudo -n (non-interactive) so iptables never hangs waiting for a password.
+    // If sudoers isn't set up, the rules silently fail rather than blocking the session.
+    match net {
+        NetMode::AirGapped => {
+            // Block all outbound except loopback and sport 22 (SSH response).
+            // We match on sport 22 instead of conntrack ESTABLISHED because
+            // conntrack may not be tracking the SSH connection that was
+            // established before these rules were inserted.
+            concat!(
+                "sudo -n iptables -A OUTPUT -o lo -j ACCEPT 2>/dev/null;",
+                " sudo -n iptables -A OUTPUT -p tcp --sport 22 -j ACCEPT 2>/dev/null;",
+                " sudo -n iptables -A OUTPUT -j DROP 2>/dev/null;",
+            ).to_string()
+        }
+        NetMode::ApiOnly | NetMode::FullOutbound => {
+            // Set proxy env vars so tools (curl, pip, npm, etc.) route through the proxy.
+            // Block direct outbound TCP on 80/443 to force traffic through the proxy.
+            // Allow: loopback, SSH responses (sport 22), proxy, DNS.
+            concat!(
+                "export http_proxy=http://10.0.2.100:3128;",
+                " export https_proxy=http://10.0.2.100:3128;",
+                " export HTTP_PROXY=http://10.0.2.100:3128;",
+                " export HTTPS_PROXY=http://10.0.2.100:3128;",
+                " sudo -n iptables -A OUTPUT -o lo -j ACCEPT 2>/dev/null;",
+                " sudo -n iptables -A OUTPUT -p tcp --sport 22 -j ACCEPT 2>/dev/null;",
+                " sudo -n iptables -A OUTPUT -d 10.0.2.100 -p tcp --dport 3128 -j ACCEPT 2>/dev/null;",
+                " sudo -n iptables -A OUTPUT -p udp --dport 53 -j ACCEPT 2>/dev/null;",
+                " sudo -n iptables -A OUTPUT -p tcp --dport 80 -j DROP 2>/dev/null;",
+                " sudo -n iptables -A OUTPUT -p tcp --dport 443 -j DROP 2>/dev/null;",
+            ).to_string()
+        }
+        NetMode::DevBridge => {
+            // No restrictions — the user opted into full LAN access.
+            String::new()
+        }
+    }
 }
 
 /// Quote a string for safe inclusion in a remote shell command.
