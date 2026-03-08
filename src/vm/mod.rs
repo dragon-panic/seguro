@@ -20,6 +20,10 @@ impl QemuProcess {
     pub fn kill(&mut self) -> Result<()> {
         self.child.start_kill().wrap_err("killing QEMU")
     }
+
+    pub async fn wait(&mut self) -> Result<std::process::ExitStatus> {
+        self.child.wait().await.wrap_err("waiting for QEMU to exit")
+    }
 }
 
 /// Parameters for building the QEMU command line.

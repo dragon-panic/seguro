@@ -126,3 +126,25 @@
 {"ts":"2026-03-08T01:09:47.769669357+00:00","action":"surface","node_id":"zGGV.3fPA"}
 {"ts":"2026-03-08T01:09:47.771057379+00:00","action":"surface","node_id":"zGGV.Xzlm"}
 {"ts":"2026-03-08T01:09:47.772667264+00:00","action":"surface","node_id":"zGGV.JP03"}
+{"ts":"2026-03-08T01:17:53.032871484+00:00","action":"claim","node_id":"zGGV.3fPA","part":"claude","reason":"starting programmatic session API"}
+{"ts":"2026-03-08T01:28:51.271493322+00:00","action":"create","node_id":"zGGV.3fPA.zngK","detail":"Create SessionConfig and SessionHandle types in src/api.rs"}
+{"ts":"2026-03-08T01:28:51.272994949+00:00","action":"create","node_id":"zGGV.3fPA.ltId","detail":"Move session lifecycle into SessionHandle::start()"}
+{"ts":"2026-03-08T01:28:51.274273524+00:00","action":"create","node_id":"zGGV.3fPA.nIlm","detail":"Add exec() method — run command in guest via SSH"}
+{"ts":"2026-03-08T01:28:51.275549390+00:00","action":"create","node_id":"zGGV.3fPA.jqPz","detail":"Refactor commands/run.rs to use the new API"}
+{"ts":"2026-03-08T01:28:51.277236250+00:00","action":"create","node_id":"zGGV.3fPA.6MVP","detail":"Add kill()/wait()/id() methods and cleanup on drop"}
+{"ts":"2026-03-08T01:28:57.613088161+00:00","action":"surface","node_id":"zGGV.3fPA.zngK"}
+{"ts":"2026-03-08T01:29:00.296478965+00:00","action":"claim","node_id":"zGGV.3fPA.zngK","part":"claude"}
+{"ts":"2026-03-08T01:34:55.001393519+00:00","action":"integrate","node_id":"zGGV.3fPA.zngK","reason":"SessionConfig, Sandbox types created"}
+{"ts":"2026-03-08T01:34:55.002577582+00:00","action":"surface","node_id":"zGGV.3fPA.ltId"}
+{"ts":"2026-03-08T01:34:55.004107891+00:00","action":"claim","node_id":"zGGV.3fPA.ltId","part":"claude"}
+{"ts":"2026-03-08T01:34:55.005639861+00:00","action":"integrate","node_id":"zGGV.3fPA.ltId","reason":"start() lifecycle implemented"}
+{"ts":"2026-03-08T01:34:55.006765566+00:00","action":"surface","node_id":"zGGV.3fPA.nIlm"}
+{"ts":"2026-03-08T01:34:55.008008817+00:00","action":"surface","node_id":"zGGV.3fPA.6MVP"}
+{"ts":"2026-03-08T01:34:55.009475499+00:00","action":"claim","node_id":"zGGV.3fPA.nIlm","part":"claude"}
+{"ts":"2026-03-08T01:34:55.010971700+00:00","action":"integrate","node_id":"zGGV.3fPA.nIlm","reason":"exec() method implemented"}
+{"ts":"2026-03-08T01:34:55.012260409+00:00","action":"claim","node_id":"zGGV.3fPA.6MVP","part":"claude"}
+{"ts":"2026-03-08T01:34:55.013631115+00:00","action":"integrate","node_id":"zGGV.3fPA.6MVP","reason":"kill()/wait()/id() implemented"}
+{"ts":"2026-03-08T01:34:55.014706122+00:00","action":"surface","node_id":"zGGV.3fPA.jqPz"}
+{"ts":"2026-03-08T01:34:55.016191004+00:00","action":"claim","node_id":"zGGV.3fPA.jqPz","part":"claude"}
+{"ts":"2026-03-08T01:34:55.017814449+00:00","action":"integrate","node_id":"zGGV.3fPA.jqPz","reason":"commands/run.rs refactored to use Sandbox API"}
+{"ts":"2026-03-08T01:34:58.466585680+00:00","action":"integrate","node_id":"zGGV.3fPA","reason":"all subtasks done, API complete, tests pass"}
