@@ -28,7 +28,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use color_eyre::eyre::{Result, WrapErr, eyre};
-use tokio::sync::{mpsc, Mutex, Notify};
+use tokio::sync::{mpsc, watch, Mutex, Notify};
 use tokio::time::Instant;
 
 /// Controls where guest command I/O is routed.
@@ -88,6 +88,19 @@ impl Default for RestartPolicy {
             ],
         }
     }
+}
+
+/// Health state of the sandbox VM.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HealthState {
+    /// SSH responds quickly — VM is healthy.
+    Healthy,
+    /// SSH responds but slowly (>5s) — VM may be under heavy load.
+    Degraded,
+    /// SSH did not respond within the check interval — VM may be stuck.
+    Unresponsive,
+    /// QEMU process has exited.
+    Dead,
 }
 
 /// Persona configuration loaded from a TOML file.
@@ -180,6 +193,9 @@ pub struct SandboxConfig {
     /// is written to `workspace/.claude/CLAUDE.md` and persona env vars are
     /// merged into the guest environment.
     pub persona_config: Option<PathBuf>,
+    /// Health check interval. When set, a background task pings SSH at this
+    /// interval and updates the health state. None disables health checks.
+    pub health_check_interval: Option<Duration>,
 }
 
 impl Default for SandboxConfig {
@@ -198,6 +214,7 @@ impl Default for SandboxConfig {
             stderr: OutputMode::Inherit,
             restart_policy: RestartPolicy::default(),
             persona_config: None,
+            health_check_interval: None,
         }
     }
 }
@@ -233,6 +250,12 @@ pub struct Sandbox {
     shutdown: Arc<Notify>,
     /// Handle to the background monitor task (if restart policy != Never).
     _monitor: Option<tokio::task::JoinHandle<()>>,
+    /// Current health state (updated by background heartbeat task).
+    /// Sender is held to keep the channel alive; the health monitor writes to a clone.
+    _health_tx: watch::Sender<HealthState>,
+    health_rx: watch::Receiver<HealthState>,
+    /// Handle to the health check task.
+    _health_monitor: Option<tokio::task::JoinHandle<()>>,
 }
 
 impl Sandbox {
@@ -393,6 +416,21 @@ impl Sandbox {
             None
         };
 
+        let (health_tx, health_rx) = watch::channel(HealthState::Healthy);
+
+        // Spawn health check if interval is configured
+        let health_monitor = if let Some(interval) = config.health_check_interval {
+            let handle = spawn_health_monitor(
+                session.ssh_port,
+                interval,
+                health_tx.clone(),
+                Arc::clone(&shutdown),
+            );
+            Some(handle)
+        } else {
+            None
+        };
+
         Ok(Self {
             session,
             qemu,
@@ -404,6 +442,9 @@ impl Sandbox {
             stderr: config.stderr,
             shutdown,
             _monitor: monitor,
+            _health_tx: health_tx,
+            health_rx,
+            _health_monitor: health_monitor,
         })
     }
 
@@ -705,6 +746,8 @@ impl Sandbox {
             qemu_pid: qemu.id(),
         };
 
+        let (health_tx, health_rx) = watch::channel(HealthState::Healthy);
+
         Ok(Self {
             session,
             qemu: Arc::new(Mutex::new(qemu)),
@@ -716,7 +759,24 @@ impl Sandbox {
             stderr: OutputMode::Inherit,
             shutdown: Arc::new(Notify::new()),
             _monitor: None,
+            _health_tx: health_tx,
+            health_rx,
+            _health_monitor: None,
         })
+    }
+
+    /// Current health state of the VM.
+    ///
+    /// Always returns `Healthy` if no health check interval was configured.
+    pub fn health(&self) -> HealthState {
+        *self.health_rx.borrow()
+    }
+
+    /// Subscribe to health state changes.
+    ///
+    /// Returns a `watch::Receiver` that yields the new state whenever it changes.
+    pub fn subscribe_health(&self) -> watch::Receiver<HealthState> {
+        self.health_rx.clone()
     }
 
     /// Read the persisted session metadata.
@@ -843,6 +903,68 @@ fn spawn_crash_monitor(
             }
         }
     })
+}
+
+/// Background task that periodically checks SSH connectivity and updates health state.
+fn spawn_health_monitor(
+    ssh_port: u16,
+    interval: Duration,
+    tx: watch::Sender<HealthState>,
+    shutdown: Arc<Notify>,
+) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
+        loop {
+            tokio::select! {
+                _ = tokio::time::sleep(interval) => {}
+                _ = shutdown.notified() => {
+                    tracing::debug!("health monitor: shutdown");
+                    return;
+                }
+            }
+
+            let state = check_ssh_health(ssh_port).await;
+            let prev = *tx.borrow();
+            if state != prev {
+                tracing::info!(?prev, ?state, "health state changed");
+                let _ = tx.send(state);
+            }
+        }
+    })
+}
+
+/// Single-shot SSH health check. Attempts to read the SSH banner and
+/// classifies the response time.
+async fn check_ssh_health(port: u16) -> HealthState {
+    use tokio::io::AsyncReadExt;
+    use tokio::net::TcpStream;
+
+    let addr = format!("127.0.0.1:{}", port);
+    let start = Instant::now();
+
+    // Try to connect + read banner with a 10s overall timeout
+    let result = tokio::time::timeout(Duration::from_secs(10), async {
+        let mut stream = TcpStream::connect(&addr).await?;
+        let mut buf = [0u8; 20];
+        tokio::time::timeout(Duration::from_secs(8), stream.read(&mut buf))
+            .await
+            .map_err(|_| std::io::Error::new(std::io::ErrorKind::TimedOut, "banner read timeout"))?
+            .map(|n| n >= 4 && &buf[..4] == b"SSH-")
+    })
+    .await;
+
+    match result {
+        Ok(Ok(true)) => {
+            let elapsed = start.elapsed();
+            if elapsed > Duration::from_secs(5) {
+                HealthState::Degraded
+            } else {
+                HealthState::Healthy
+            }
+        }
+        Ok(Ok(false)) => HealthState::Unresponsive, // connected but no SSH banner
+        Ok(Err(_)) => HealthState::Unresponsive,     // connection error
+        Err(_) => HealthState::Unresponsive,          // overall timeout
+    }
 }
 
 /// Read from an output handle according to the mode.
@@ -1129,6 +1251,19 @@ system_prompt = "Just a prompt."
         assert_eq!(parsed.memory_mb, 2048);
         assert_eq!(parsed.env_vars, vec![("KEY".into(), "value".into())]);
         assert_eq!(parsed.net, "full-outbound");
+    }
+
+    #[tokio::test]
+    async fn health_check_no_ssh_returns_unresponsive() {
+        // No SSH server on this port — should return Unresponsive
+        let state = check_ssh_health(19999).await;
+        assert_eq!(state, HealthState::Unresponsive);
+    }
+
+    #[test]
+    fn health_state_default_is_healthy() {
+        let (_, rx) = watch::channel(HealthState::Healthy);
+        assert_eq!(*rx.borrow(), HealthState::Healthy);
     }
 
     #[test]

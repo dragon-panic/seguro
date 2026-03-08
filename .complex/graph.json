@@ -47,15 +47,6 @@
       "updated_at": "2026-03-08T16:45:12.075127490Z"
     },
     {
-      "id": "vWsL.8KjF",
-      "title": "Session health monitoring (heartbeat)",
-      "state": "ready",
-      "shadowed": false,
-      "part": null,
-      "created_at": "2026-03-08T16:37:41.153641924Z",
-      "updated_at": "2026-03-08T17:05:17.084784258Z"
-    },
-    {
       "id": "vWsL.8gR8",
       "title": "Session event stream (SSE/callback for Ox integration)",
       "state": "ready",

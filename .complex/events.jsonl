@@ -225,3 +225,5 @@
 {"ts":"2026-03-08T17:07:36.563303833+00:00","action":"integrate","node_id":"vWsL.nPY8","reason":"all tests pass, persona injection via TOML implemented"}
 {"ts":"2026-03-08T17:07:52.946183751+00:00","action":"claim","node_id":"vWsL.qeOH","part":"claude","reason":"session state persistence — enables recovery after crash"}
 {"ts":"2026-03-08T17:10:03.428849772+00:00","action":"integrate","node_id":"vWsL.qeOH","reason":"session.json persistence + Sandbox::recover() implemented, all tests pass"}
+{"ts":"2026-03-08T17:10:18.766473332+00:00","action":"claim","node_id":"vWsL.8KjF","part":"claude","reason":"health monitoring — feeds into event stream"}
+{"ts":"2026-03-08T17:12:58.579335260+00:00","action":"integrate","node_id":"vWsL.8KjF","reason":"health monitoring with watch channel, background SSH heartbeat, all tests pass"}
