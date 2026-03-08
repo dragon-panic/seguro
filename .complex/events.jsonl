@@ -152,3 +152,14 @@
 {"ts":"2026-03-08T01:43:04.470636894+00:00","action":"integrate","node_id":"zGGV.Xzlm","reason":"timeout implemented, tests pass"}
 {"ts":"2026-03-08T01:55:25.855352213+00:00","action":"claim","node_id":"zGGV.JP03","part":"claude","reason":"structured output + quiet-by-default"}
 {"ts":"2026-03-08T01:59:41.662707724+00:00","action":"integrate","node_id":"zGGV.JP03","reason":"SessionResult, OutputMode, quiet-by-default, --verbose flag, all demos pass clean"}
+{"ts":"2026-03-08T02:25:12.597108314+00:00","action":"create","node_id":"QMjh","detail":"Data-driven VM profiles"}
+{"ts":"2026-03-08T02:25:21.213292451+00:00","action":"create","node_id":"QMjh.NEcH","detail":"ProfileConfig struct + TOML parsing"}
+{"ts":"2026-03-08T02:25:21.214528787+00:00","action":"create","node_id":"QMjh.dKcg","detail":"CLI --profile flag + --browser alias"}
+{"ts":"2026-03-08T02:25:21.215726955+00:00","action":"create","node_id":"QMjh.Wtjo","detail":"locate_base takes profile string"}
+{"ts":"2026-03-08T02:25:21.216929723+00:00","action":"create","node_id":"QMjh.8ne8","detail":"SandboxConfig.profile + resolution in Sandbox::start"}
+{"ts":"2026-03-08T02:25:21.218098882+00:00","action":"create","node_id":"QMjh.iWu5","detail":"images build --profile support"}
+{"ts":"2026-03-08T02:25:21.219260662+00:00","action":"create","node_id":"QMjh.d2t6","detail":"Wire through: run.rs uses profile for memory/smp/env"}
+{"ts":"2026-03-08T02:25:28.808775831+00:00","action":"surface","node_id":"QMjh.NEcH"}
+{"ts":"2026-03-08T02:28:43.699586724+00:00","action":"claim","node_id":"QMjh.NEcH","part":"claude"}
+{"ts":"2026-03-08T02:29:48.291711464+00:00","action":"edit","node_id":"QMjh.NEcH"}
+{"ts":"2026-03-08T02:31:09.502492136+00:00","action":"integrate","node_id":"QMjh.NEcH","reason":"all 17 config tests pass, clippy clean, no new warnings"}

@@ -1,5 +1,6 @@
 use color_eyre::eyre::{Result, WrapErr};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 // ── Top-level ─────────────────────────────────────────────────────────────────
@@ -20,6 +21,53 @@ pub struct Config {
     pub vm: VmConfig,
     #[serde(default)]
     pub session: SessionConfig,
+    #[serde(default)]
+    pub profiles: HashMap<String, ProfileConfig>,
+}
+
+// ── Profiles ─────────────────────────────────────────────────────────────────
+
+/// A named VM profile. Orchestrators and users define these in config to
+/// declare what image, resources, packages, and env vars an agent needs.
+///
+/// Built-in profiles ("default", "browser") provide sensible starting points.
+/// Config-level profiles override built-in fields; explicit CLI/API fields
+/// override everything.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ProfileConfig {
+    /// Image suffix — maps to `base-{suffix}.qcow2`. None = bare `base.qcow2`.
+    pub image_suffix: Option<String>,
+    /// VM RAM in MB.
+    pub memory_mb: Option<u32>,
+    /// VM vCPU count.
+    pub smp: Option<u32>,
+    /// Apt packages to bake into the profile image at build time.
+    #[serde(default)]
+    pub packages: Vec<String>,
+    /// Environment variables injected into the guest at session start.
+    #[serde(default)]
+    pub env: HashMap<String, String>,
+}
+
+impl ProfileConfig {
+    /// Overlay `other` on top of self. `Some` values and non-empty collections win.
+    fn merge(&mut self, other: &ProfileConfig) {
+        if other.image_suffix.is_some() {
+            self.image_suffix = other.image_suffix.clone();
+        }
+        if other.memory_mb.is_some() {
+            self.memory_mb = other.memory_mb;
+        }
+        if other.smp.is_some() {
+            self.smp = other.smp;
+        }
+        if !other.packages.is_empty() {
+            self.packages = other.packages.clone();
+        }
+        for (k, v) in &other.env {
+            self.env.insert(k.clone(), v.clone());
+        }
+    }
 }
 
 // ── Proxy ─────────────────────────────────────────────────────────────────────
@@ -208,11 +256,56 @@ impl Config {
         if let Some(v) = other.session.persistent {
             self.session.persistent = Some(v);
         }
+
+        // profiles — merge each profile individually so partial overrides work
+        for (name, other_profile) in other.profiles {
+            self.profiles
+                .entry(name)
+                .or_default()
+                .merge(&other_profile);
+        }
     }
 
     /// Effective SSH timeout in seconds.
     pub fn ssh_timeout(&self) -> u32 {
         self.session.ssh_timeout_secs.unwrap_or(120)
+    }
+
+    /// Resolve a profile by name.
+    ///
+    /// Merge order (later wins): built-in → user/project config.
+    /// Unknown names resolve to the "default" built-in.
+    pub fn profile(&self, name: &str) -> ProfileConfig {
+        let mut resolved = Self::builtin_profile(name);
+        if let Some(cfg_profile) = self.profiles.get(name) {
+            resolved.merge(cfg_profile);
+        }
+        resolved
+    }
+
+    fn builtin_profile(name: &str) -> ProfileConfig {
+        match name {
+            "browser" => ProfileConfig {
+                image_suffix: Some("browser".into()),
+                memory_mb: Some(4096),
+                smp: Some(4),
+                packages: vec![
+                    "chromium-browser".into(),
+                    "fonts-liberation".into(),
+                ],
+                env: HashMap::from([
+                    ("PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH".into(), "/usr/bin/chromium-browser".into()),
+                    ("PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD".into(), "1".into()),
+                ]),
+            },
+            "default" | _ => ProfileConfig {
+                image_suffix: None,
+                memory_mb: Some(2048),
+                smp: Some(2),
+                packages: Vec::new(),
+                env: HashMap::new(),
+            },
+        }
     }
 }
 
@@ -352,5 +445,130 @@ hosts = ["api.example.com"]
         let mut cfg = Config::default();
         cfg.session.ssh_timeout_secs = Some(30);
         assert_eq!(cfg.ssh_timeout(), 30);
+    }
+
+    // ── Profile tests ────────────────────────────────────────────────────
+
+    #[test]
+    fn builtin_default_profile() {
+        let cfg = Config::default();
+        let p = cfg.profile("default");
+        assert_eq!(p.image_suffix, None);
+        assert_eq!(p.memory_mb, Some(2048));
+        assert_eq!(p.smp, Some(2));
+    }
+
+    #[test]
+    fn builtin_browser_profile() {
+        let cfg = Config::default();
+        let p = cfg.profile("browser");
+        assert_eq!(p.image_suffix, Some("browser".into()));
+        assert_eq!(p.memory_mb, Some(4096));
+        assert_eq!(p.smp, Some(4));
+    }
+
+    #[test]
+    fn unknown_profile_returns_default() {
+        let cfg = Config::default();
+        let p = cfg.profile("nonexistent");
+        assert_eq!(p.image_suffix, None);
+        assert_eq!(p.memory_mb, Some(2048));
+        assert_eq!(p.smp, Some(2));
+    }
+
+    #[test]
+    fn custom_profile_from_toml() {
+        let dir = tempfile::tempdir().unwrap();
+        write_toml(
+            dir.path(),
+            "config.toml",
+            r#"
+[profiles.my-agent]
+image_suffix = "my-agent"
+memory_mb = 8192
+smp = 8
+packages = ["python3", "python3-venv"]
+
+[profiles.my-agent.env]
+MY_VAR = "hello"
+"#,
+        );
+
+        let cfg = Config::from_path(&dir.path().join("config.toml")).unwrap();
+        let p = cfg.profile("my-agent");
+        assert_eq!(p.image_suffix, Some("my-agent".into()));
+        assert_eq!(p.memory_mb, Some(8192));
+        assert_eq!(p.smp, Some(8));
+        assert_eq!(p.packages, vec!["python3", "python3-venv"]);
+        assert_eq!(p.env.get("MY_VAR").unwrap(), "hello");
+    }
+
+    #[test]
+    fn toml_profile_overrides_builtin() {
+        let dir = tempfile::tempdir().unwrap();
+        write_toml(
+            dir.path(),
+            "config.toml",
+            r#"
+[profiles.browser]
+memory_mb = 8192
+"#,
+        );
+
+        let cfg = Config::from_path(&dir.path().join("config.toml")).unwrap();
+        let p = cfg.profile("browser");
+        // overridden
+        assert_eq!(p.memory_mb, Some(8192));
+        // inherited from builtin
+        assert_eq!(p.image_suffix, Some("browser".into()));
+        assert_eq!(p.smp, Some(4));
+    }
+
+    #[test]
+    fn merge_profiles_project_overrides_user() {
+        let mut user = Config::default();
+        user.profiles.insert("browser".into(), ProfileConfig {
+            memory_mb: Some(4096),
+            smp: Some(6),
+            ..Default::default()
+        });
+
+        let mut project = Config::default();
+        project.profiles.insert("browser".into(), ProfileConfig {
+            memory_mb: Some(16384),
+            ..Default::default()
+        });
+
+        user.merge(project);
+        let p = user.profile("browser");
+        // project wins
+        assert_eq!(p.memory_mb, Some(16384));
+        // user value preserved (project didn't set smp)
+        assert_eq!(p.smp, Some(6));
+        // builtin inherited
+        assert_eq!(p.image_suffix, Some("browser".into()));
+    }
+
+    #[test]
+    fn profile_env_from_toml() {
+        let dir = tempfile::tempdir().unwrap();
+        write_toml(
+            dir.path(),
+            "config.toml",
+            r#"
+[profiles.cua]
+image_suffix = "cua"
+memory_mb = 8192
+
+[profiles.cua.env]
+DISPLAY = ":99"
+VNC_PORT = "5900"
+"#,
+        );
+
+        let cfg = Config::from_path(&dir.path().join("config.toml")).unwrap();
+        let p = cfg.profile("cua");
+        assert_eq!(p.env.get("DISPLAY").unwrap(), ":99");
+        assert_eq!(p.env.get("VNC_PORT").unwrap(), "5900");
     }
 }
