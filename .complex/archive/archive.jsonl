@@ -47,3 +47,4 @@
 {"id":"QMjh","title":"Data-driven VM profiles","state":"integrated","shadowed":false,"part":null,"created_at":"2026-03-08T02:25:12.596854893Z","updated_at":"2026-03-08T16:26:47.177166966Z"}
 {"id":"0oQW","title":"Session fixes: PTY, credentials, proxy, Claude Code","state":"integrated","shadowed":false,"part":null,"created_at":"2026-03-08T16:26:52.070747178Z","updated_at":"2026-03-08T16:27:05.949255457Z"}
 {"id":"vWsL.YKNn","title":"Multi-session manager (concurrent VM pool)","state":"latent","shadowed":false,"part":null,"created_at":"2026-03-08T16:37:41.152364019Z","updated_at":"2026-03-08T16:37:41.152364019Z"}
+{"id":"vWsL.vqyv","title":"Structured exec output (capture stdout/stderr as bytes)","state":"integrated","shadowed":false,"part":"claude","created_at":"2026-03-08T16:37:41.156610338Z","updated_at":"2026-03-08T16:59:57.546748263Z","meta":{"_reason":"all tests pass, Capture/Stream OutputMode implemented"}}

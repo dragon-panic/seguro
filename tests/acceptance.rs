@@ -281,6 +281,92 @@ fn proxy_log_contains_requests() {
     );
 }
 
+/// OutputMode::Capture collects stdout/stderr bytes from the guest.
+#[tokio::test]
+#[ignore = "requires KVM and built base image"]
+async fn capture_mode_collects_output() {
+    use seguro::api::{OutputMode, Sandbox, SandboxConfig};
+
+    assert!(has_kvm(), "KVM not available");
+    assert!(base_image_exists(), "base.qcow2 not built");
+
+    let tmp = tempfile::tempdir().unwrap();
+
+    let config = SandboxConfig {
+        workspace: tmp.path().to_path_buf(),
+        stdout: OutputMode::Capture,
+        stderr: OutputMode::Capture,
+        timeout: Some(Duration::from_secs(60)),
+        ..Default::default()
+    };
+
+    let sandbox = Sandbox::start(config).await.expect("failed to start sandbox");
+    let result = sandbox
+        .exec(&["echo".into(), "capture_test".into()])
+        .await
+        .expect("exec failed");
+
+    sandbox.kill().await.expect("kill failed");
+
+    assert_eq!(result.exit_code, Some(0));
+    let stdout = result.stdout.expect("stdout should be Some in Capture mode");
+    let stdout_str = String::from_utf8_lossy(&stdout);
+    assert!(
+        stdout_str.contains("capture_test"),
+        "expected 'capture_test' in stdout, got: {:?}",
+        stdout_str
+    );
+}
+
+/// OutputMode::Stream forwards output chunks through a channel.
+#[tokio::test]
+#[ignore = "requires KVM and built base image"]
+async fn stream_mode_sends_chunks() {
+    use seguro::api::{OutputChunk, OutputMode, Sandbox, SandboxConfig};
+    use tokio::sync::mpsc;
+
+    assert!(has_kvm(), "KVM not available");
+    assert!(base_image_exists(), "base.qcow2 not built");
+
+    let tmp = tempfile::tempdir().unwrap();
+    let (tx, mut rx) = mpsc::channel::<OutputChunk>(64);
+
+    let config = SandboxConfig {
+        workspace: tmp.path().to_path_buf(),
+        stdout: OutputMode::Stream(tx),
+        stderr: OutputMode::Capture,
+        timeout: Some(Duration::from_secs(60)),
+        ..Default::default()
+    };
+
+    let sandbox = Sandbox::start(config).await.expect("failed to start sandbox");
+    let result = sandbox
+        .exec(&["echo".into(), "stream_test".into()])
+        .await
+        .expect("exec failed");
+
+    sandbox.kill().await.expect("kill failed");
+
+    assert_eq!(result.exit_code, Some(0));
+    // stdout should be None (streamed, not captured)
+    assert!(result.stdout.is_none(), "stdout should be None in Stream mode");
+
+    // Collect streamed chunks
+    let mut collected = Vec::new();
+    while let Ok(chunk) = rx.try_recv() {
+        match chunk {
+            OutputChunk::Stdout(data) => collected.extend(data),
+            OutputChunk::Stderr(_) => {}
+        }
+    }
+    let streamed = String::from_utf8_lossy(&collected);
+    assert!(
+        streamed.contains("stream_test"),
+        "expected 'stream_test' in streamed chunks, got: {:?}",
+        streamed
+    );
+}
+
 /// Concurrent sessions use different SSH ports and don't interfere.
 #[test]
 #[ignore = "requires KVM and built base image"]

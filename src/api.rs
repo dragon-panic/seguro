@@ -1,19 +1,21 @@
 //! Programmatic API for managing sandboxed sessions.
 //!
 //! ```no_run
-//! use seguro::api::{SandboxConfig, Sandbox};
+//! use seguro::api::{OutputMode, SandboxConfig, Sandbox};
 //! use seguro::cli::NetMode;
 //!
 //! # async fn example() -> color_eyre::eyre::Result<()> {
 //! let config = SandboxConfig {
 //!     workspace: "/home/user/project".into(),
 //!     env_vars: vec![("ANTHROPIC_API_KEY".into(), "sk-...".into())],
+//!     stdout: OutputMode::Capture,
+//!     stderr: OutputMode::Capture,
 //!     ..Default::default()
 //! };
 //!
 //! let sandbox = Sandbox::start(config).await?;
-//! let result = sandbox.exec(&["claude".into(), "--help".into()]).await?;
-//! println!("exit={:?} timed_out={} duration={:?}", result.exit_code, result.timed_out, result.duration);
+//! let result = sandbox.exec(&["echo".into(), "hello".into()]).await?;
+//! assert_eq!(result.stdout.as_deref(), Some(b"hello\n".as_slice()));
 //! sandbox.kill().await?;
 //! # Ok(())
 //! # }
@@ -25,16 +27,28 @@ use std::process::Stdio;
 use std::time::Duration;
 
 use color_eyre::eyre::{Result, WrapErr, eyre};
+use tokio::sync::mpsc;
 use tokio::time::Instant;
 
 /// Controls where guest command I/O is routed.
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Default)]
 pub enum OutputMode {
     /// Inherit parent's stdout/stderr (default).
     #[default]
     Inherit,
     /// Discard all output.
     Null,
+    /// Collect full output into `Vec<u8>`, returned in `SessionResult`.
+    Capture,
+    /// Forward output chunks in real-time through a channel.
+    Stream(mpsc::Sender<OutputChunk>),
+}
+
+/// A chunk of output from a guest command (used with `OutputMode::Stream`).
+#[derive(Debug, Clone)]
+pub enum OutputChunk {
+    Stdout(Vec<u8>),
+    Stderr(Vec<u8>),
 }
 
 use crate::cli::NetMode;
@@ -53,6 +67,10 @@ pub struct SessionResult {
     pub timed_out: bool,
     /// Wall-clock duration of the exec() call.
     pub duration: Duration,
+    /// Captured stdout bytes (populated only with `OutputMode::Capture`).
+    pub stdout: Option<Vec<u8>>,
+    /// Captured stderr bytes (populated only with `OutputMode::Capture`).
+    pub stderr: Option<Vec<u8>>,
 }
 
 /// Configuration for starting a sandboxed session.
@@ -240,7 +258,22 @@ impl Sandbox {
     /// An empty `command` slice starts an interactive shell (typically
     /// only useful from the CLI, not programmatic use).
     pub async fn exec(&self, command: &[String]) -> Result<SessionResult> {
+        self.exec_with(command, &self.stdout, &self.stderr).await
+    }
+
+    /// Run a command with explicit output modes (overrides sandbox defaults).
+    ///
+    /// Use this when you need per-call control, e.g. `Stream` with a fresh
+    /// channel for each exec.
+    pub async fn exec_with(
+        &self,
+        command: &[String],
+        stdout_mode: &OutputMode,
+        stderr_mode: &OutputMode,
+    ) -> Result<SessionResult> {
         let interactive = command.is_empty();
+        let capturing = matches!(stdout_mode, OutputMode::Capture | OutputMode::Stream(_))
+            || matches!(stderr_mode, OutputMode::Capture | OutputMode::Stream(_));
 
         let mut cmd = tokio::process::Command::new("ssh");
         cmd.args([
@@ -252,23 +285,27 @@ impl Sandbox {
             "-o", "IdentityAgent=none",
             "-o", "LogLevel=QUIET",
         ]);
-        if interactive {
-            // Force PTY for interactive shell sessions
-            cmd.arg("-tt");
-        } else if std::io::stdout().is_terminal() {
-            // Allocate PTY for commands run from a real terminal (e.g. `claude`)
-            cmd.arg("-t");
+        // PTY merges stdout+stderr, so skip it when capturing/streaming.
+        if !capturing {
+            if interactive {
+                cmd.arg("-tt");
+            } else if std::io::stdout().is_terminal() {
+                cmd.arg("-t");
+            }
         }
         cmd.arg("agent@127.0.0.1");
 
-        // Route stdout/stderr per config
-        match self.stdout {
+        // Route stdout per mode
+        match stdout_mode {
             OutputMode::Inherit => { cmd.stdout(Stdio::inherit()); }
             OutputMode::Null => { cmd.stdout(Stdio::null()); }
+            OutputMode::Capture | OutputMode::Stream(_) => { cmd.stdout(Stdio::piped()); }
         }
-        match self.stderr {
+        // Route stderr per mode
+        match stderr_mode {
             OutputMode::Inherit => { cmd.stderr(Stdio::inherit()); }
             OutputMode::Null => { cmd.stderr(Stdio::null()); }
+            OutputMode::Capture | OutputMode::Stream(_) => { cmd.stderr(Stdio::piped()); }
         }
 
         // Mount virtiofs, source env vars, inject credentials, cd into workspace
@@ -291,6 +328,19 @@ impl Sandbox {
 
         let start = Instant::now();
 
+        if capturing {
+            self.exec_capturing(cmd, stdout_mode, stderr_mode, start).await
+        } else {
+            self.exec_simple(cmd, start).await
+        }
+    }
+
+    /// Execute with Inherit/Null modes — uses `cmd.status()`.
+    async fn exec_simple(
+        &self,
+        mut cmd: tokio::process::Command,
+        start: Instant,
+    ) -> Result<SessionResult> {
         if let Some(timeout) = self.timeout {
             match tokio::time::timeout(timeout, cmd.status()).await {
                 Ok(result) => {
@@ -299,12 +349,16 @@ impl Sandbox {
                         exit_code: status.code(),
                         timed_out: false,
                         duration: start.elapsed(),
+                        stdout: None,
+                        stderr: None,
                     })
                 }
                 Err(_) => Ok(SessionResult {
                     exit_code: None,
                     timed_out: true,
                     duration: start.elapsed(),
+                    stdout: None,
+                    stderr: None,
                 }),
             }
         } else {
@@ -313,7 +367,61 @@ impl Sandbox {
                 exit_code: status.code(),
                 timed_out: false,
                 duration: start.elapsed(),
+                stdout: None,
+                stderr: None,
             })
+        }
+    }
+
+    /// Execute with Capture/Stream modes — spawns child and reads handles.
+    async fn exec_capturing(
+        &self,
+        mut cmd: tokio::process::Command,
+        stdout_mode: &OutputMode,
+        stderr_mode: &OutputMode,
+        start: Instant,
+    ) -> Result<SessionResult> {
+        let mut child = cmd.spawn().wrap_err("spawning SSH command")?;
+
+        // Take the handles before spawning read tasks
+        let stdout_handle = child.stdout.take();
+        let stderr_handle = child.stderr.take();
+
+        let stdout_fut = spawn_output_reader(stdout_handle, stdout_mode);
+        let stderr_fut = spawn_stderr_reader(stderr_handle, stderr_mode);
+
+        let run_fut = async {
+            let (status, stdout_bytes, stderr_bytes) =
+                tokio::try_join!(
+                    async { child.wait().await.wrap_err("waiting for guest command") },
+                    stdout_fut,
+                    stderr_fut,
+                )?;
+            Ok::<_, color_eyre::eyre::Report>(SessionResult {
+                exit_code: status.code(),
+                timed_out: false,
+                duration: start.elapsed(),
+                stdout: stdout_bytes,
+                stderr: stderr_bytes,
+            })
+        };
+
+        if let Some(timeout) = self.timeout {
+            match tokio::time::timeout(timeout, run_fut).await {
+                Ok(result) => result,
+                Err(_) => {
+                    let _ = child.kill().await;
+                    Ok(SessionResult {
+                        exit_code: None,
+                        timed_out: true,
+                        duration: start.elapsed(),
+                        stdout: None,
+                        stderr: None,
+                    })
+                }
+            }
+        } else {
+            run_fut.await
         }
     }
 
@@ -327,6 +435,80 @@ impl Sandbox {
     /// Wait for the QEMU process to exit (e.g. if the guest shuts itself down).
     pub async fn wait(&mut self) -> Result<std::process::ExitStatus> {
         self.qemu.wait().await
+    }
+}
+
+/// Read from an output handle according to the mode.
+///
+/// - `Capture`: reads all bytes into a `Vec<u8>` and returns `Some(bytes)`.
+/// - `Stream(sender)`: reads in chunks and sends them through the channel; returns `None`.
+/// - `Inherit`/`Null`: handle should be `None`; returns `None`.
+async fn spawn_output_reader(
+    handle: Option<tokio::process::ChildStdout>,
+    mode: &OutputMode,
+) -> Result<Option<Vec<u8>>> {
+    // This function is generic over ChildStdout; we use a separate one for stderr below.
+    use tokio::io::AsyncReadExt;
+
+    let Some(mut reader) = handle else {
+        return Ok(None);
+    };
+
+    match mode {
+        OutputMode::Capture => {
+            let mut buf = Vec::new();
+            reader.read_to_end(&mut buf).await.wrap_err("reading captured output")?;
+            Ok(Some(buf))
+        }
+        OutputMode::Stream(sender) => {
+            let mut buf = [0u8; 8192];
+            loop {
+                let n = reader.read(&mut buf).await.wrap_err("reading stream output")?;
+                if n == 0 {
+                    break;
+                }
+                // Best-effort send; if receiver dropped, just stop.
+                if sender.send(OutputChunk::Stdout(buf[..n].to_vec())).await.is_err() {
+                    break;
+                }
+            }
+            Ok(None)
+        }
+        _ => Ok(None),
+    }
+}
+
+/// Same as `spawn_output_reader` but for stderr handles (sends `OutputChunk::Stderr`).
+async fn spawn_stderr_reader(
+    handle: Option<tokio::process::ChildStderr>,
+    mode: &OutputMode,
+) -> Result<Option<Vec<u8>>> {
+    use tokio::io::AsyncReadExt;
+
+    let Some(mut reader) = handle else {
+        return Ok(None);
+    };
+
+    match mode {
+        OutputMode::Capture => {
+            let mut buf = Vec::new();
+            reader.read_to_end(&mut buf).await.wrap_err("reading captured stderr")?;
+            Ok(Some(buf))
+        }
+        OutputMode::Stream(sender) => {
+            let mut buf = [0u8; 8192];
+            loop {
+                let n = reader.read(&mut buf).await.wrap_err("reading stream stderr")?;
+                if n == 0 {
+                    break;
+                }
+                if sender.send(OutputChunk::Stderr(buf[..n].to_vec())).await.is_err() {
+                    break;
+                }
+            }
+            Ok(None)
+        }
+        _ => Ok(None),
     }
 }
 
