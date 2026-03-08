@@ -218,3 +218,8 @@
 {"ts":"2026-03-08T16:59:57.547260032+00:00","action":"integrate","node_id":"vWsL.vqyv","reason":"all tests pass, Capture/Stream OutputMode implemented"}
 {"ts":"2026-03-08T17:00:18.483823118+00:00","action":"claim","node_id":"vWsL.Ltud","part":"claude","reason":"critical path — blocks 3 other tasks"}
 {"ts":"2026-03-08T17:04:37.558166529+00:00","action":"integrate","node_id":"vWsL.Ltud","reason":"all tests pass, crash monitor with RestartPolicy implemented"}
+{"ts":"2026-03-08T17:05:17.083127152+00:00","action":"surface","node_id":"vWsL.qeOH"}
+{"ts":"2026-03-08T17:05:17.084784518+00:00","action":"surface","node_id":"vWsL.8KjF"}
+{"ts":"2026-03-08T17:05:17.086543250+00:00","action":"surface","node_id":"vWsL.8gR8"}
+{"ts":"2026-03-08T17:05:20.876597742+00:00","action":"claim","node_id":"vWsL.nPY8","part":"claude","reason":"next ready task under vWsL"}
+{"ts":"2026-03-08T17:07:36.563303833+00:00","action":"integrate","node_id":"vWsL.nPY8","reason":"all tests pass, persona injection via TOML implemented"}
