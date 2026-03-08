@@ -169,6 +169,7 @@ write_files:
 runcmd:
   - mkdir -p /home/agent/workspace
   - chown agent:agent /home/agent/workspace
+  - npm install -g @anthropic-ai/claude-code
 
 power_state:
   mode: poweroff

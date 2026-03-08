@@ -20,15 +20,6 @@
       "updated_at": "2026-03-08T00:36:50.434875305Z"
     },
     {
-      "id": "zGGV.J1Qg",
-      "title": "Pre-install agent runtime in base image",
-      "state": "ready",
-      "shadowed": false,
-      "part": null,
-      "created_at": "2026-03-08T00:37:59.329448221Z",
-      "updated_at": "2026-03-08T01:09:47.768045322Z"
-    },
-    {
       "id": "QMjh",
       "title": "Data-driven VM profiles",
       "state": "latent",
