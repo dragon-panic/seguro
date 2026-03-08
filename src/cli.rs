@@ -52,8 +52,8 @@ pub struct RunArgs {
     #[arg(long)]
     pub tls_inspect: bool,
 
-    /// Kill the session after this many minutes
-    #[arg(long, value_name = "MINUTES")]
+    /// Kill the session after this many seconds
+    #[arg(long, value_name = "SECONDS")]
     pub timeout: Option<u64>,
 
     /// Agent command to run inside the VM (omit for an interactive shell)

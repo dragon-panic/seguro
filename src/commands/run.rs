@@ -42,7 +42,7 @@ pub async fn execute(args: RunArgs) -> Result<()> {
         smp,
         persistent: args.persistent,
         browser: args.browser,
-        timeout: args.timeout.map(|m| Duration::from_secs(m * 60)),
+        timeout: args.timeout.map(Duration::from_secs),
     };
 
     // ── Save terminal state ────────────────────────────────────────────────
