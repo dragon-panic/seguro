@@ -231,3 +231,23 @@
 {"ts":"2026-03-08T17:16:55.209930298+00:00","action":"integrate","node_id":"vWsL.8gR8","reason":"broadcast events for all lifecycle transitions, all tests pass"}
 {"ts":"2026-03-08T17:17:12.477406576+00:00","action":"surface","node_id":"vWsL"}
 {"ts":"2026-03-08T17:17:12.479288795+00:00","action":"integrate","node_id":"vWsL","reason":"all 6 subtasks complete: structured exec, crash detection, persona injection, state persistence, health monitoring, event stream"}
+{"ts":"2026-03-08T17:23:46.057405238+00:00","action":"create","node_id":"2QAB","detail":"Orchestrator support — gastown-informed gaps"}
+{"ts":"2026-03-08T17:23:51.605175470+00:00","action":"create","node_id":"2QAB.5PfE","detail":"Graceful shutdown signaling"}
+{"ts":"2026-03-08T17:23:51.606740982+00:00","action":"create","node_id":"2QAB.wwoN","detail":"Pre-kill workspace state inspection"}
+{"ts":"2026-03-08T17:23:51.608301265+00:00","action":"create","node_id":"2QAB.rJol","detail":"Guest-to-host agent state reporting"}
+{"ts":"2026-03-08T17:23:51.610039110+00:00","action":"create","node_id":"2QAB.JRAu","detail":"Per-session resource metering"}
+{"ts":"2026-03-08T17:23:51.611521055+00:00","action":"create","node_id":"2QAB.AHrf","detail":"Message injection primitive (inbox)"}
+{"ts":"2026-03-08T17:23:51.613132796+00:00","action":"create","node_id":"2QAB.GCvU","detail":"Agent-only restart (without VM restart)"}
+{"ts":"2026-03-08T17:24:05.938071666+00:00","action":"edit","node_id":"2QAB"}
+{"ts":"2026-03-08T17:24:14.949016403+00:00","action":"surface","node_id":"2QAB.rJol"}
+{"ts":"2026-03-08T17:24:14.950410562+00:00","action":"surface","node_id":"2QAB.AHrf"}
+{"ts":"2026-03-08T17:24:14.951943865+00:00","action":"surface","node_id":"2QAB.JRAu"}
+{"ts":"2026-03-08T17:24:14.953430430+00:00","action":"surface","node_id":"2QAB.5PfE"}
+{"ts":"2026-03-08T17:24:14.954886126+00:00","action":"surface","node_id":"2QAB.GCvU"}
+{"ts":"2026-03-08T17:33:24.837927605+00:00","action":"edit","node_id":"2QAB.rJol"}
+{"ts":"2026-03-08T17:33:25.448522593+00:00","action":"edit","node_id":"2QAB.AHrf"}
+{"ts":"2026-03-08T17:33:45.226635371+00:00","action":"edit","node_id":"2QAB"}
+{"ts":"2026-03-08T17:37:26.923062922+00:00","action":"claim","node_id":"2QAB.rJol","part":"claude","reason":"implementing agent state + inbox primitives"}
+{"ts":"2026-03-08T17:37:27.435531649+00:00","action":"claim","node_id":"2QAB.AHrf","part":"claude","reason":"implementing alongside rJol — shared workspace plumbing"}
+{"ts":"2026-03-08T17:39:07.367943479+00:00","action":"integrate","node_id":"2QAB.rJol","reason":"agent_state() primitive — synchronous virtiofs read, no watcher"}
+{"ts":"2026-03-08T17:39:08.189212439+00:00","action":"integrate","node_id":"2QAB.AHrf","reason":"inject() + pending_messages() primitives — synchronous virtiofs write"}

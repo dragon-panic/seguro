@@ -254,6 +254,24 @@ struct QemuLaunchParams {
     ssh_timeout: Duration,
 }
 
+/// Agent status reported by the guest via `.seguro/status.json`.
+///
+/// The guest agent writes this file atomically (temp + rename) to the
+/// virtiofs-shared workspace. The host reads it synchronously — no SSH needed.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct AgentState {
+    /// Agent-defined state label (e.g. "working", "idle", "stuck", "exiting").
+    pub state: String,
+    /// ISO 8601 timestamp of the last status update.
+    pub updated_at: String,
+    /// Human-readable description of the current task (optional).
+    #[serde(default)]
+    pub task: Option<String>,
+    /// Progress fraction 0.0–1.0 (optional).
+    #[serde(default)]
+    pub progress: Option<f64>,
+}
+
 /// A running sandboxed VM session.
 ///
 /// Owns the QEMU process, virtiofsd daemon, and proxy server.
@@ -265,6 +283,8 @@ pub struct Sandbox {
     virtiofsd: Virtiofsd,
     _proxy: ProxyServer,
     net: NetMode,
+    /// Host-side path to the virtiofs-shared workspace directory.
+    workspace: PathBuf,
     timeout: Option<Duration>,
     stdout: OutputMode,
     stderr: OutputMode,
@@ -476,6 +496,7 @@ impl Sandbox {
             virtiofsd,
             _proxy: proxy,
             net: config.net,
+            workspace,
             timeout: config.timeout,
             stdout: config.stdout,
             stderr: config.stderr,
@@ -811,6 +832,7 @@ impl Sandbox {
             virtiofsd,
             _proxy: proxy,
             net,
+            workspace: meta.workspace,
             timeout: None,
             stdout: OutputMode::Inherit,
             stderr: OutputMode::Inherit,
@@ -843,6 +865,72 @@ impl Sandbox {
     /// Events that arrive before subscribing are not replayed.
     pub fn events(&self) -> broadcast::Receiver<SessionEvent> {
         self.events_tx.subscribe()
+    }
+
+    /// Read the agent's self-reported state from `.seguro/status.json`.
+    ///
+    /// Returns `Ok(None)` if the file doesn't exist or can't be parsed
+    /// (e.g. partial write in progress). This is a synchronous filesystem
+    /// read — no SSH round-trip. Ox calls this on its own supervision cadence.
+    pub fn agent_state(&self) -> Result<Option<AgentState>> {
+        let path = self.workspace.join(".seguro/status.json");
+        match std::fs::read_to_string(&path) {
+            Ok(content) => match serde_json::from_str::<AgentState>(&content) {
+                Ok(state) => Ok(Some(state)),
+                Err(_) => Ok(None), // partial write or malformed — not an error
+            },
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(e) => Err(e).wrap_err("reading .seguro/status.json"),
+        }
+    }
+
+    /// Write a message to the agent's inbox for turn-boundary delivery.
+    ///
+    /// Creates `{workspace}/.seguro/inbox/{timestamp_nanos}.md` containing
+    /// the message text. The agent is responsible for reading and deleting
+    /// inbox files at turn boundaries (e.g. via a Claude Code hook).
+    /// Returns the path of the written file.
+    pub fn inject(&self, message: &str) -> Result<PathBuf> {
+        let inbox = self.workspace.join(".seguro/inbox");
+        std::fs::create_dir_all(&inbox)
+            .wrap_err("creating .seguro/inbox")?;
+
+        let ts = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        let filename = format!("{ts}.md");
+        let path = inbox.join(&filename);
+
+        // Atomic write: temp file + rename to avoid partial reads
+        let tmp_path = inbox.join(format!(".{filename}.tmp"));
+        std::fs::write(&tmp_path, message)
+            .wrap_err("writing inbox message")?;
+        std::fs::rename(&tmp_path, &path)
+            .wrap_err("renaming inbox message")?;
+
+        Ok(path)
+    }
+
+    /// Count unread messages in the agent's inbox.
+    ///
+    /// Returns 0 if the inbox directory doesn't exist.
+    pub fn pending_messages(&self) -> Result<usize> {
+        let inbox = self.workspace.join(".seguro/inbox");
+        match std::fs::read_dir(&inbox) {
+            Ok(entries) => {
+                let count = entries
+                    .filter_map(|e| e.ok())
+                    .filter(|e| {
+                        e.path().extension().is_some_and(|ext| ext == "md")
+                            && !e.file_name().to_string_lossy().starts_with('.')
+                    })
+                    .count();
+                Ok(count)
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(0),
+            Err(e) => Err(e).wrap_err("reading .seguro/inbox"),
+        }
     }
 
     /// Read the persisted session metadata.
@@ -1365,6 +1453,99 @@ system_prompt = "Just a prompt."
         match rx2.try_recv().unwrap() {
             SessionEvent::Started { session_id } => assert_eq!(session_id, "test-1"),
             _ => panic!("expected Started event on second subscriber"),
+        }
+    }
+
+    #[test]
+    fn agent_state_parses_valid_json() {
+        let json = r#"{
+            "state": "working",
+            "updated_at": "2026-03-08T12:00:00Z",
+            "task": "implementing auth module",
+            "progress": 0.6
+        }"#;
+        let state: AgentState = serde_json::from_str(json).unwrap();
+        assert_eq!(state.state, "working");
+        assert_eq!(state.task.as_deref(), Some("implementing auth module"));
+        assert_eq!(state.progress, Some(0.6));
+    }
+
+    #[test]
+    fn agent_state_parses_minimal_json() {
+        let json = r#"{"state": "idle", "updated_at": "2026-03-08T12:00:00Z"}"#;
+        let state: AgentState = serde_json::from_str(json).unwrap();
+        assert_eq!(state.state, "idle");
+        assert!(state.task.is_none());
+        assert!(state.progress.is_none());
+    }
+
+    #[test]
+    fn agent_state_returns_none_for_missing_file() {
+        let tmp = tempfile::tempdir().unwrap();
+        // No .seguro/status.json exists
+        let path = tmp.path().join(".seguro/status.json");
+        match std::fs::read_to_string(&path) {
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            other => panic!("expected NotFound, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn agent_state_returns_none_for_malformed_json() {
+        let tmp = tempfile::tempdir().unwrap();
+        let seguro_dir = tmp.path().join(".seguro");
+        std::fs::create_dir_all(&seguro_dir).unwrap();
+        std::fs::write(seguro_dir.join("status.json"), "not json").unwrap();
+
+        let result: Result<AgentState, _> = serde_json::from_str("not json");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn inject_creates_inbox_message() {
+        let tmp = tempfile::tempdir().unwrap();
+        let inbox = tmp.path().join(".seguro/inbox");
+
+        // Simulate inject
+        std::fs::create_dir_all(&inbox).unwrap();
+        let msg = "Please check your test results.";
+        let path = inbox.join("1234567890.md");
+        std::fs::write(&path, msg).unwrap();
+
+        assert!(path.exists());
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), msg);
+    }
+
+    #[test]
+    fn pending_messages_counts_md_files() {
+        let tmp = tempfile::tempdir().unwrap();
+        let inbox = tmp.path().join(".seguro/inbox");
+        std::fs::create_dir_all(&inbox).unwrap();
+
+        // 2 real messages, 1 temp file (dotfile)
+        std::fs::write(inbox.join("100.md"), "msg1").unwrap();
+        std::fs::write(inbox.join("200.md"), "msg2").unwrap();
+        std::fs::write(inbox.join(".300.md.tmp"), "partial").unwrap();
+
+        let count = std::fs::read_dir(&inbox)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| {
+                e.path().extension().is_some_and(|ext| ext == "md")
+                    && !e.file_name().to_string_lossy().starts_with('.')
+            })
+            .count();
+        assert_eq!(count, 2);
+    }
+
+    #[test]
+    fn pending_messages_zero_when_no_inbox() {
+        let tmp = tempfile::tempdir().unwrap();
+        let inbox = tmp.path().join(".seguro/inbox");
+        // Directory doesn't exist
+        match std::fs::read_dir(&inbox) {
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            other => panic!("expected NotFound, got {:?}", other),
         }
     }
 

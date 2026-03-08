@@ -36,7 +36,58 @@
       "part": null,
       "created_at": "2026-03-08T16:27:15.094294522Z",
       "updated_at": "2026-03-08T16:27:15.094294522Z"
+    },
+    {
+      "id": "2QAB",
+      "title": "Orchestrator support — gastown-informed gaps",
+      "state": "latent",
+      "shadowed": false,
+      "part": null,
+      "created_at": "2026-03-08T17:23:46.056996533Z",
+      "updated_at": "2026-03-08T17:23:46.056996533Z"
+    },
+    {
+      "id": "2QAB.5PfE",
+      "title": "Graceful shutdown signaling",
+      "state": "ready",
+      "shadowed": false,
+      "part": null,
+      "created_at": "2026-03-08T17:23:51.604914750Z",
+      "updated_at": "2026-03-08T17:24:14.953430230Z"
+    },
+    {
+      "id": "2QAB.wwoN",
+      "title": "Pre-kill workspace state inspection",
+      "state": "latent",
+      "shadowed": false,
+      "part": null,
+      "created_at": "2026-03-08T17:23:51.606456283Z",
+      "updated_at": "2026-03-08T17:23:51.606456283Z"
+    },
+    {
+      "id": "2QAB.JRAu",
+      "title": "Per-session resource metering",
+      "state": "ready",
+      "shadowed": false,
+      "part": null,
+      "created_at": "2026-03-08T17:23:51.609737112Z",
+      "updated_at": "2026-03-08T17:24:14.951943625Z"
+    },
+    {
+      "id": "2QAB.GCvU",
+      "title": "Agent-only restart (without VM restart)",
+      "state": "ready",
+      "shadowed": false,
+      "part": null,
+      "created_at": "2026-03-08T17:23:51.612835277Z",
+      "updated_at": "2026-03-08T17:24:14.954885926Z"
     }
   ],
-  "edges": []
+  "edges": [
+    {
+      "from": "2QAB.5PfE",
+      "to": "2QAB.wwoN",
+      "type": "blocks"
+    }
+  ]
 }
