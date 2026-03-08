@@ -47,23 +47,19 @@ Run a CLI coding agent inside a minimal, hardened QEMU virtual machine that:
 
 ## Guest OS Selection
 
-### Recommended: Alpine Linux (musl)
+### Current: Ubuntu 24.04 minimal (cloud image)
 
 | Property | Value |
 |---|---|
-| Image size | ~50 MB base |
-| Boot time | <1 s with microvm machine type |
-| Attack surface | Minimal — no systemd, no DBus, no snap |
-| Package manager | apk — fast, reproducible |
-| Hardening baseline | Already ships without setuid binaries |
+| Image size | ~350 MB base |
+| Boot time | ~3–5 s with KVM |
+| Attack surface | Minimal cloud image — no desktop, no snap |
+| Package manager | apt |
+| Cloud-init | Per-session cidata disk (FAT12) for SSH key + CA injection |
 
-Alpine is the primary target. It is familiar to container users and has all packages needed for Node, Python, Rust, Go dev work.
+Ubuntu 24.04 minimal cloud image is the current guest OS. Claude Code and its Node.js runtime are pre-installed via cloud-init at image build time.
 
 **Browser profile:** bump `-m` to 4G and `-smp` to 4 when enabling Playwright/browser-use. Chromium is memory-heavy and will OOM at 2G with multiple tabs.
-
-### Alternative: Fedora CoreOS
-
-Use CoreOS if you need SELinux enforcing (stronger MAC policy) or Podman/container-in-VM workflows. It boots slower (~4 s) and has a larger footprint (~800 MB) but provides enterprise-grade MAC.
 
 ---
 
@@ -301,9 +297,10 @@ The CLI wrapper SSHs into the guest to exec the agent. Authentication uses an ep
 ```
 seguro run:
   1. ssh-keygen -t ed25519 -f /run/seguro/${SESSION_ID}/id_ed25519 -N ""
-  2. Pass public key to guest via QEMU -fw_cfg:
-       -fw_cfg name=opt/seguro/authorized_key,file=/run/seguro/${SESSION_ID}/id_ed25519.pub
-  3. Guest rc.local reads the key and writes it to /home/agent/.ssh/authorized_keys
+  2. Pass public key to guest via cloud-init cidata (FAT12 seed disk)
+     - meta-data: instance-id (changes each session to force re-run)
+     - user-data: creates agent user, installs SSH key, optional CA cert
+  3. cloud-init runs on first boot, sets up agent user with the key
   4. CLI connects: ssh -i /run/seguro/${SESSION_ID}/id_ed25519 -p ${SSH_PORT} agent@localhost
 ```
 
@@ -420,17 +417,23 @@ nix               = "0.29"     # Unix signals, process management
 ```
 src/
   main.rs              — clap entrypoint, subcommand dispatch
+  lib.rs               — library target, exposes all modules
+  api.rs               — programmatic API: Sandbox, SandboxConfig, OutputMode,
+                         RestartPolicy, PersonaConfig, SessionMeta, HealthState,
+                         SessionEvent, crash/health monitors
   cli.rs               — all clap structs
-  config.rs            — seguro.toml schema + loading + project override merge
+  config.rs            — seguro.toml schema + loading + project override merge +
+                         ProfileConfig + built-in profiles
   session/
     mod.rs             — Session struct, full lifecycle (start → running → cleanup)
     ports.rs           — dynamic host port allocation (bind :0, release)
     keys.rs            — ephemeral ed25519 key gen + OpenSSH serialization
     image.rs           — qcow2 overlay creation, snapshot management, GC
   vm/
-    mod.rs             — QEMU process builder + supervision (restart on unexpected exit)
+    mod.rs             — QEMU process builder, SSH readiness polling
     virtiofsd.rs       — virtiofsd process management
-    fw_cfg.rs          — -fw_cfg argument construction for key injection
+    fw_cfg.rs          — -fw_cfg argument construction for env var injection
+    cidata.rs          — cloud-init NoCloud seed disk generation
   proxy/
     mod.rs             — proxy server startup, mode dispatch, tokio task
     filter.rs          — SSRF block list, allow/deny list evaluation
@@ -441,7 +444,6 @@ src/
     shell.rs
     sessions.rs
     images.rs
-    snapshot.rs
     proxy_log.rs
 ```
 
@@ -490,6 +492,89 @@ Resolution order (later wins): built-in defaults → user config → project con
 
 The programmatic API accepts `SandboxConfig { profile: Some("my-agent".into()), .. }`.
 
+### Programmatic API
+
+The `seguro::api` module exposes `Sandbox` for programmatic use by orchestrators (e.g. Ox).
+
+#### Output capture
+
+`OutputMode` controls where guest command I/O is routed:
+
+| Mode | Behavior |
+|------|----------|
+| `Inherit` | Pipe to parent stdout/stderr (default) |
+| `Null` | Discard output |
+| `Capture` | Collect into `Vec<u8>`, returned in `SessionResult.stdout`/`.stderr` |
+| `Stream(mpsc::Sender)` | Forward chunks in real-time via channel as `OutputChunk::Stdout`/`Stderr` |
+
+Set via `SandboxConfig { stdout: OutputMode::Capture, stderr: OutputMode::Capture, .. }` or override per-call with `sandbox.exec_with(command, &stdout_mode, &stderr_mode)`.
+
+#### Crash detection and auto-restart
+
+`RestartPolicy` controls automatic QEMU restart on crash:
+
+```rust
+SandboxConfig {
+    restart_policy: RestartPolicy {
+        strategy: RestartStrategy::OnFailure, // Never | OnFailure | Always
+        max_restarts: 3,
+        backoff: vec![Duration::from_secs(1), Duration::from_secs(5), Duration::from_secs(15)],
+    },
+    ..
+}
+```
+
+A background monitor watches the QEMU child process. On unexpected exit, it re-launches QEMU with the same overlay disk (preserving guest filesystem state), waits for SSH, and resumes. Default policy is `Never` — existing behavior unchanged.
+
+#### Persona injection
+
+`SandboxConfig { persona_config: Some(path), .. }` loads a TOML file that defines agent identity:
+
+```toml
+system_prompt = "You are a security auditor. Be thorough."
+role = "auditor"
+
+[env]
+AGENT_MODE = "audit"
+```
+
+- `system_prompt` → written to `workspace/.claude/CLAUDE.md` (Claude Code picks it up automatically)
+- `role` → injected as `SEGURO_ROLE` env var
+- `env` → merged into guest environment (profile env < persona env < explicit env_vars)
+
+#### Session persistence and recovery
+
+Session metadata is persisted to `runtime_dir/session.json` during `Sandbox::start()`. Contains all parameters needed to reconstruct a session: ports, paths, env vars, net mode, profile.
+
+`Sandbox::recover(session_id)` reconnects to an existing session by reading `session.json`, re-launching QEMU with the preserved overlay, and waiting for SSH.
+
+#### Health monitoring
+
+When `health_check_interval` is set, a background task periodically checks SSH connectivity:
+
+| State | Meaning |
+|-------|---------|
+| `Healthy` | SSH responds quickly |
+| `Degraded` | SSH responds but slowly (>5s) |
+| `Unresponsive` | SSH did not respond within check interval |
+| `Dead` | QEMU process exited |
+
+API: `sandbox.health()` returns current state. `sandbox.subscribe_health()` returns a `watch::Receiver` for async notifications.
+
+#### Event stream
+
+All lifecycle transitions emit `SessionEvent` through a `broadcast` channel:
+
+- `Started` — QEMU launched
+- `SshReady` — SSH banner detected
+- `ExecStarted` — command execution began
+- `Completed` — command execution finished (with exit code and duration)
+- `HealthChanged` — health state transitioned
+- `Crashed` — QEMU exited unexpectedly
+- `Restarted` — QEMU re-launched after crash (with attempt number)
+
+API: `sandbox.events()` returns a `broadcast::Receiver<SessionEvent>`. Multiple subscribers receive all events.
+
 ### Startup checks
 
 On every invocation `seguro` verifies:
@@ -506,16 +591,22 @@ All three failures produce a clear, actionable error message rather than a crypt
 
 ### Session startup sequence
 
-1. Allocate a free host port for SSH (`SSH_PORT`) by binding to port 0 and releasing
-2. Generate an ephemeral ed25519 key pair under `/run/seguro/${SESSION_ID}/`
-3. Start `virtiofsd` on a per-session socket path, pointed at the shared directory
-4. Start `mitmdump` on a per-session port, with the appropriate `proxy.py` addon
-5. Create a session qcow2 overlay on top of `base.qcow2`
-6. Launch QEMU with all of the above wired together
-7. Wait for SSH to become available (poll with exponential backoff, max 15 s)
-8. `ssh` into the guest and exec the requested agent command
-9. On agent exit: kill QEMU, stop virtiofsd, stop mitmdump, clean up `/run/seguro/${SESSION_ID}/`
-10. If `--persistent`: archive the session overlay instead of deleting it
+1. Resolve profile → image, memory, smp, env vars
+2. Allocate a free host port for SSH and proxy by binding to port 0 and releasing
+3. Generate an ephemeral ed25519 key pair under `/run/seguro/${SESSION_ID}/`
+4. Start the built-in Rust proxy server (HTTP/HTTPS, with filtering)
+5. Create cloud-init cidata seed disk (SSH key + optional CA cert)
+6. Load and apply persona config if provided (system prompt → `.claude/CLAUDE.md`, env vars)
+7. Inject env vars and credentials into `workspace/.seguro/`
+8. Start `virtiofsd` on a per-session socket path, pointed at the shared directory
+9. Create a session qcow2 overlay on top of the profile's base image
+10. Launch QEMU with all of the above wired together
+11. Write `session.json` to runtime dir (enables `Sandbox::recover()`)
+12. Wait for SSH to become available (poll with exponential backoff)
+13. Spawn crash monitor (if restart policy ≠ Never) and health monitor (if interval set)
+14. `ssh` into the guest and exec the requested agent command
+15. On agent exit: kill QEMU, stop virtiofsd, stop proxy, clean up `/run/seguro/${SESSION_ID}/`
+16. If `--persistent`: keep the session overlay and workspace
 
 ### `--share` default behaviour
 
@@ -557,7 +648,6 @@ Usage:
 - GUI / desktop environment inside the VM
 - macOS or Windows host support
 - GPU / ML workloads
-- Multi-agent orchestration
 - Image signing / supply-chain verification
 - Full container-in-VM nesting
 - Custom kernel builds
