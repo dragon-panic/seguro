@@ -45,18 +45,6 @@
       "part": null,
       "created_at": "2026-03-08T17:23:46.056996533Z",
       "updated_at": "2026-03-08T17:23:46.056996533Z"
-    },
-    {
-      "id": "2QAB.wwoN",
-      "title": "Pre-kill workspace state inspection",
-      "state": "ready",
-      "shadowed": false,
-      "part": null,
-      "created_at": "2026-03-08T17:23:51.606456283Z",
-      "updated_at": "2026-03-08T17:46:15.502504804Z",
-      "meta": {
-        "_reason": "blockers 5PfE and rJol are integrated"
-      }
     }
   ],
   "edges": []

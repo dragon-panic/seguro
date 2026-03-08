@@ -261,3 +261,6 @@
 {"ts":"2026-03-08T17:46:07.945680104+00:00","action":"integrate","node_id":"2QAB.GCvU","reason":"kill_agent() SSHes in and kills agent processes, Ox handles re-exec"}
 {"ts":"2026-03-08T17:46:07.947639433+00:00","action":"integrate","node_id":"2QAB.JRAu","reason":"live SessionUsage via atomic proxy counters + wall clock"}
 {"ts":"2026-03-08T17:46:15.502505624+00:00","action":"surface","node_id":"2QAB.wwoN","reason":"blockers 5PfE and rJol are integrated"}
+{"ts":"2026-03-08T17:47:12.401483623+00:00","action":"claim","node_id":"2QAB.wwoN","part":"claude","reason":"implementing workspace_state primitive"}
+{"ts":"2026-03-08T17:47:28.118955642+00:00","action":"edit","node_id":"2QAB.wwoN"}
+{"ts":"2026-03-08T17:49:28.037040705+00:00","action":"integrate","node_id":"2QAB.wwoN","reason":"workspace_state() primitive + sessions prune --force safety check"}

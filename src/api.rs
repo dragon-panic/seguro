@@ -277,6 +277,22 @@ pub struct AgentState {
     pub progress: Option<f64>,
 }
 
+/// Git state of the shared workspace, inspected from the host side.
+///
+/// Read via [`Sandbox::workspace_state`]. Useful for pre-kill verification —
+/// Ox can refuse to terminate sessions with unpushed work.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct WorkspaceState {
+    /// Whether the workspace is a git repository.
+    pub is_git_repo: bool,
+    /// Working tree has uncommitted changes (modified, staged, or untracked files).
+    pub has_uncommitted: bool,
+    /// Local branch has commits not pushed to the upstream remote.
+    pub has_unpushed: bool,
+    /// Number of dirty files (modified + untracked).
+    pub dirty_files: u32,
+}
+
 /// Per-session resource usage snapshot.
 ///
 /// Read via [`Sandbox::usage`] at any time — counters are live.
@@ -812,6 +828,14 @@ impl Sandbox {
             proxy_blocked: self.proxy_stats.blocked.load(Relaxed),
             proxy_bytes_received: self.proxy_stats.bytes_received.load(Relaxed),
         }
+    }
+
+    /// Inspect the workspace git state from the host side (via virtiofs).
+    ///
+    /// No SSH needed — runs `git` directly on the host-visible workspace path.
+    /// Returns a [`WorkspaceState`] describing uncommitted and unpushed changes.
+    pub fn workspace_state(&self) -> Result<WorkspaceState> {
+        check_workspace_git_state(&self.workspace)
     }
 
     /// Wait for the QEMU process to exit (e.g. if the guest shuts itself down).
@@ -1429,6 +1453,59 @@ fn shell_quote(s: &str) -> String {
     format!("'{}'", s.replace('\'', "'\\''"))
 }
 
+/// Check git state of a workspace directory from the host side.
+///
+/// Public so that CLI commands (e.g. `sessions prune`) can use it
+/// without a running `Sandbox` instance.
+pub fn check_workspace_git_state(workspace: &std::path::Path) -> Result<WorkspaceState> {
+    use std::process::Command;
+
+    // Check if it's a git repo
+    let is_git = Command::new("git")
+        .args(["-C", &workspace.to_string_lossy(), "rev-parse", "--git-dir"])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false);
+
+    if !is_git {
+        return Ok(WorkspaceState {
+            is_git_repo: false,
+            has_uncommitted: false,
+            has_unpushed: false,
+            dirty_files: 0,
+        });
+    }
+
+    // Check uncommitted changes (modified + untracked)
+    let porcelain = Command::new("git")
+        .args(["-C", &workspace.to_string_lossy(), "status", "--porcelain"])
+        .stderr(Stdio::null())
+        .output()
+        .wrap_err("running git status")?;
+    let porcelain_out = String::from_utf8_lossy(&porcelain.stdout);
+    let dirty_files = porcelain_out.lines().filter(|l| !l.is_empty()).count() as u32;
+
+    // Check unpushed commits
+    let unpushed = Command::new("git")
+        .args(["-C", &workspace.to_string_lossy(), "log", "@{upstream}..HEAD", "--oneline"])
+        .stderr(Stdio::null())
+        .output()
+        .map(|o| {
+            o.status.success()
+                && !String::from_utf8_lossy(&o.stdout).trim().is_empty()
+        })
+        .unwrap_or(false); // no upstream configured → not "unpushed"
+
+    Ok(WorkspaceState {
+        is_git_repo: true,
+        has_uncommitted: dirty_files > 0,
+        has_unpushed: unpushed,
+        dirty_files,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1693,6 +1770,71 @@ system_prompt = "Just a prompt."
         assert_eq!(stats.requests.load(Relaxed), 10);
         assert_eq!(stats.blocked.load(Relaxed), 2);
         assert_eq!(stats.bytes_received.load(Relaxed), 1024);
+    }
+
+    #[test]
+    fn workspace_state_non_git_dir() {
+        let tmp = tempfile::tempdir().unwrap();
+        let state = check_workspace_git_state(tmp.path()).unwrap();
+        assert!(!state.is_git_repo);
+        assert!(!state.has_uncommitted);
+        assert!(!state.has_unpushed);
+        assert_eq!(state.dirty_files, 0);
+    }
+
+    #[test]
+    fn workspace_state_clean_git_repo() {
+        let tmp = tempfile::tempdir().unwrap();
+        // Init a git repo with one commit
+        std::process::Command::new("git")
+            .args(["-C", &tmp.path().to_string_lossy(), "init"])
+            .output().unwrap();
+        std::process::Command::new("git")
+            .args(["-C", &tmp.path().to_string_lossy(), "config", "user.email", "test@test.com"])
+            .output().unwrap();
+        std::process::Command::new("git")
+            .args(["-C", &tmp.path().to_string_lossy(), "config", "user.name", "Test"])
+            .output().unwrap();
+        std::fs::write(tmp.path().join("file.txt"), "hello").unwrap();
+        std::process::Command::new("git")
+            .args(["-C", &tmp.path().to_string_lossy(), "add", "."])
+            .output().unwrap();
+        std::process::Command::new("git")
+            .args(["-C", &tmp.path().to_string_lossy(), "commit", "-m", "init"])
+            .output().unwrap();
+
+        let state = check_workspace_git_state(tmp.path()).unwrap();
+        assert!(state.is_git_repo);
+        assert!(!state.has_uncommitted);
+        assert_eq!(state.dirty_files, 0);
+    }
+
+    #[test]
+    fn workspace_state_dirty_git_repo() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::process::Command::new("git")
+            .args(["-C", &tmp.path().to_string_lossy(), "init"])
+            .output().unwrap();
+        std::process::Command::new("git")
+            .args(["-C", &tmp.path().to_string_lossy(), "config", "user.email", "test@test.com"])
+            .output().unwrap();
+        std::process::Command::new("git")
+            .args(["-C", &tmp.path().to_string_lossy(), "config", "user.name", "Test"])
+            .output().unwrap();
+        std::fs::write(tmp.path().join("file.txt"), "hello").unwrap();
+        std::process::Command::new("git")
+            .args(["-C", &tmp.path().to_string_lossy(), "add", "."])
+            .output().unwrap();
+        std::process::Command::new("git")
+            .args(["-C", &tmp.path().to_string_lossy(), "commit", "-m", "init"])
+            .output().unwrap();
+        // Create uncommitted changes
+        std::fs::write(tmp.path().join("dirty.txt"), "dirty").unwrap();
+
+        let state = check_workspace_git_state(tmp.path()).unwrap();
+        assert!(state.is_git_repo);
+        assert!(state.has_uncommitted);
+        assert_eq!(state.dirty_files, 1);
     }
 
     #[test]

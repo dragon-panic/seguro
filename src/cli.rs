@@ -124,7 +124,11 @@ pub enum SessionsCommand {
     /// List active and saved sessions
     Ls,
     /// Remove orphaned session overlays and stale /run state
-    Prune,
+    Prune {
+        /// Skip workspace git-state check and prune even if dirty
+        #[arg(long)]
+        force: bool,
+    },
 }
 
 #[derive(Args)]
