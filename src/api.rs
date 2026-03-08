@@ -49,6 +49,8 @@ pub struct SandboxConfig {
     pub persistent: bool,
     /// Use the browser base image variant.
     pub browser: bool,
+    /// Kill the session after this duration. None means no timeout.
+    pub timeout: Option<Duration>,
 }
 
 impl Default for SandboxConfig {
@@ -62,6 +64,7 @@ impl Default for SandboxConfig {
             smp: 2,
             persistent: false,
             browser: false,
+            timeout: None,
         }
     }
 }
@@ -77,6 +80,7 @@ pub struct Sandbox {
     virtiofsd: Virtiofsd,
     _proxy: ProxyServer,
     net: NetMode,
+    timeout: Option<Duration>,
 }
 
 impl Sandbox {
@@ -162,6 +166,7 @@ impl Sandbox {
             virtiofsd,
             _proxy: proxy,
             net: config.net,
+            timeout: config.timeout,
         })
     }
 
@@ -209,8 +214,18 @@ impl Sandbox {
             cmd.arg(quoted.join(" "));
         }
 
-        let status = cmd.status().await.wrap_err("executing command in guest")?;
-        Ok(status)
+        if let Some(timeout) = self.timeout {
+            match tokio::time::timeout(timeout, cmd.status()).await {
+                Ok(result) => Ok(result.wrap_err("executing command in guest")?),
+                Err(_) => Err(eyre!(
+                    "session timed out after {}s",
+                    timeout.as_secs()
+                )),
+            }
+        } else {
+            let status = cmd.status().await.wrap_err("executing command in guest")?;
+            Ok(status)
+        }
     }
 
     /// Kill the VM and all child processes. Cleans up session state.

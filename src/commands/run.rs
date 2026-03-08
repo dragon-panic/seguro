@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+use std::time::Duration;
 
 use color_eyre::eyre::{Result, eyre};
 use tokio::signal;
@@ -41,6 +42,7 @@ pub async fn execute(args: RunArgs) -> Result<()> {
         smp,
         persistent: args.persistent,
         browser: args.browser,
+        timeout: args.timeout.map(|m| Duration::from_secs(m * 60)),
     };
 
     // ── Save terminal state ────────────────────────────────────────────────

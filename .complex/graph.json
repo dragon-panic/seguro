@@ -36,15 +36,6 @@
       "part": null,
       "created_at": "2026-03-08T00:38:22.445651462Z",
       "updated_at": "2026-03-08T01:09:47.772667024Z"
-    },
-    {
-      "id": "zGGV.Xzlm",
-      "title": "Session timeouts and resource limits",
-      "state": "ready",
-      "shadowed": false,
-      "part": null,
-      "created_at": "2026-03-08T00:39:16.316291660Z",
-      "updated_at": "2026-03-08T01:09:47.771057129Z"
     }
   ],
   "edges": []
