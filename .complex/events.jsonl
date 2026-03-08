@@ -109,3 +109,13 @@
 {"ts":"2026-03-08T00:17:35.468623023+00:00","action":"integrate","node_id":"Lq6u.xgYB","reason":"iptables rules + proxy env vars working, all 3 demos pass"}
 {"ts":"2026-03-08T00:17:39.347101532+00:00","action":"claim","node_id":"Lq6u.lpzr","part":"claude","reason":"demo/03 already verified above"}
 {"ts":"2026-03-08T00:17:39.348518441+00:00","action":"integrate","node_id":"Lq6u.lpzr","reason":"demo/03 passes: air-gapped=BLOCKED, full-outbound=HTTP 200"}
+{"ts":"2026-03-08T00:25:07.301087947+00:00","action":"create","node_id":"Lq6u.h723","detail":"Optimize base image size"}
+{"ts":"2026-03-08T00:36:47.978868530+00:00","action":"integrate","node_id":"Lq6u","reason":"all MVP subtasks complete, all 3 demos pass, tagging v0.1.0"}
+{"ts":"2026-03-08T00:36:50.435026669+00:00","action":"create","node_id":"zGGV","detail":"Agent Sandbox"}
+{"ts":"2026-03-08T00:37:59.329692842+00:00","action":"create","node_id":"zGGV.J1Qg","detail":"Pre-install agent runtime in base image"}
+{"ts":"2026-03-08T00:38:13.863220934+00:00","action":"create","node_id":"zGGV.3fPA","detail":"Programmatic session API"}
+{"ts":"2026-03-08T00:38:22.445910773+00:00","action":"create","node_id":"zGGV.JP03","detail":"Structured output and result collection"}
+{"ts":"2026-03-08T00:38:59.660579978+00:00","action":"create","node_id":"zGGV.TLLu","detail":"Concurrent multi-agent sessions"}
+{"ts":"2026-03-08T00:39:16.316638657+00:00","action":"create","node_id":"zGGV.Xzlm","detail":"Session timeouts and resource limits"}
+{"ts":"2026-03-08T00:39:25.219126402+00:00","action":"create","node_id":"zGGV.dIhf","detail":"Task injection protocol"}
+{"ts":"2026-03-08T00:39:53.160412199+00:00","action":"create","node_id":"zGGV.Kirv","detail":"Workspace git integration"}
