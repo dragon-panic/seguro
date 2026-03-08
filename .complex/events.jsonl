@@ -192,3 +192,22 @@
 {"ts":"2026-03-08T16:27:39.154945473+00:00","action":"edit","node_id":"qHBF"}
 {"ts":"2026-03-08T16:27:39.156148901+00:00","action":"edit","node_id":"F4LD"}
 {"ts":"2026-03-08T16:27:39.157357469+00:00","action":"edit","node_id":"QpKy"}
+{"ts":"2026-03-08T16:34:18.740501296+00:00","action":"create","node_id":"vWsL","detail":"Ox-ready: session resilience and multi-session orchestration"}
+{"ts":"2026-03-08T16:37:35.156761817+00:00","action":"edit","node_id":"vWsL"}
+{"ts":"2026-03-08T16:37:41.149939835+00:00","action":"create","node_id":"vWsL.Ltud","detail":"Session crash detection and auto-restart"}
+{"ts":"2026-03-08T16:37:41.151271798+00:00","action":"create","node_id":"vWsL.qeOH","detail":"Session state persistence and recovery"}
+{"ts":"2026-03-08T16:37:41.152557652+00:00","action":"create","node_id":"vWsL.YKNn","detail":"Multi-session manager (concurrent VM pool)"}
+{"ts":"2026-03-08T16:37:41.153835467+00:00","action":"create","node_id":"vWsL.8KjF","detail":"Session health monitoring (heartbeat)"}
+{"ts":"2026-03-08T16:37:41.155284795+00:00","action":"create","node_id":"vWsL.nPY8","detail":"Persona injection (system prompt + config into guest)"}
+{"ts":"2026-03-08T16:37:41.156818771+00:00","action":"create","node_id":"vWsL.vqyv","detail":"Structured exec output (capture stdout/stderr as bytes)"}
+{"ts":"2026-03-08T16:37:41.158126765+00:00","action":"create","node_id":"vWsL.8gR8","detail":"Session event stream (SSE/callback for Ox integration)"}
+{"ts":"2026-03-08T16:39:35.451887264+00:00","action":"edit","node_id":"vWsL.Ltud"}
+{"ts":"2026-03-08T16:41:37.495934369+00:00","action":"edit","node_id":"vWsL.qeOH"}
+{"ts":"2026-03-08T16:41:54.073557045+00:00","action":"edit","node_id":"vWsL.YKNn"}
+{"ts":"2026-03-08T16:42:14.981150595+00:00","action":"edit","node_id":"vWsL.8KjF"}
+{"ts":"2026-03-08T16:42:29.939819450+00:00","action":"edit","node_id":"vWsL.nPY8"}
+{"ts":"2026-03-08T16:42:51.155186904+00:00","action":"edit","node_id":"vWsL.vqyv"}
+{"ts":"2026-03-08T16:43:07.435800283+00:00","action":"edit","node_id":"vWsL.8gR8"}
+{"ts":"2026-03-08T16:43:15.443457175+00:00","action":"surface","node_id":"vWsL.Ltud"}
+{"ts":"2026-03-08T16:43:15.445220532+00:00","action":"surface","node_id":"vWsL.nPY8"}
+{"ts":"2026-03-08T16:43:15.446799406+00:00","action":"surface","node_id":"vWsL.vqyv"}
