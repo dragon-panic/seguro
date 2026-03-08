@@ -20,6 +20,7 @@
 //! ```
 
 use std::path::PathBuf;
+use std::io::IsTerminal;
 use std::process::Stdio;
 use std::time::Duration;
 
@@ -240,7 +241,6 @@ impl Sandbox {
     /// only useful from the CLI, not programmatic use).
     pub async fn exec(&self, command: &[String]) -> Result<SessionResult> {
         let interactive = command.is_empty();
-        let allocate_tty = matches!(self.stdout, OutputMode::Inherit);
 
         let mut cmd = tokio::process::Command::new("ssh");
         cmd.args([
@@ -252,8 +252,12 @@ impl Sandbox {
             "-o", "IdentityAgent=none",
             "-o", "LogLevel=QUIET",
         ]);
-        if allocate_tty {
-            cmd.arg("-t"); // allocate PTY for interactive commands
+        if interactive {
+            // Force PTY for interactive shell sessions
+            cmd.arg("-tt");
+        } else if std::io::stdout().is_terminal() {
+            // Allocate PTY for commands run from a real terminal (e.g. `claude`)
+            cmd.arg("-t");
         }
         cmd.arg("agent@127.0.0.1");
 
@@ -267,10 +271,11 @@ impl Sandbox {
             OutputMode::Null => { cmd.stderr(Stdio::null()); }
         }
 
-        // Mount virtiofs, source env vars, cd into workspace
+        // Mount virtiofs, source env vars, inject credentials, cd into workspace
         cmd.arg(concat!(
             "mountpoint -q ~/workspace 2>/dev/null || sudo -n mount -t virtiofs workspace ~/workspace;",
             " if [ -f ~/workspace/.seguro/environment ]; then set -a; . ~/workspace/.seguro/environment; set +a; fi;",
+            " if [ -f ~/workspace/.seguro/.credentials.json ]; then mkdir -p ~/.claude && cp ~/workspace/.seguro/.credentials.json ~/.claude/.credentials.json && rm ~/workspace/.seguro/.credentials.json; fi;",
             " cd ~/workspace 2>/dev/null || true;",
         ));
 
@@ -325,7 +330,7 @@ impl Sandbox {
     }
 }
 
-/// Write env vars to `workspace/.seguro/` so the guest can read them via virtiofs.
+/// Write env vars and credentials to `workspace/.seguro/` so the guest can read them via virtiofs.
 fn inject_workspace_config(
     workspace: &std::path::Path,
     env_vars: &[(String, String)],
@@ -342,6 +347,16 @@ fn inject_workspace_config(
             .wrap_err("writing env vars to workspace")?;
     }
 
+    // Inject Claude Code credentials if available on the host.
+    // The guest preamble moves this to ~/.claude/ and deletes it from the workspace.
+    if let Some(home) = dirs::home_dir() {
+        let creds = home.join(".claude/.credentials.json");
+        if creds.exists() {
+            std::fs::copy(&creds, dir.join(".credentials.json"))
+                .wrap_err("copying Claude credentials to workspace")?;
+        }
+    }
+
     Ok(())
 }
 
@@ -355,7 +370,8 @@ fn iptables_preamble(net: &NetMode) -> String {
                 " sudo -n iptables -A OUTPUT -j DROP 2>/dev/null;",
             ).to_string()
         }
-        NetMode::ApiOnly | NetMode::FullOutbound => {
+        NetMode::ApiOnly => {
+            // Force all HTTP/S through proxy — it's the enforcement point for allow-list
             concat!(
                 "export http_proxy=http://10.0.2.100:3128;",
                 " export https_proxy=http://10.0.2.100:3128;",
@@ -368,6 +384,13 @@ fn iptables_preamble(net: &NetMode) -> String {
                 " sudo -n iptables -A OUTPUT -p tcp --dport 80 -j DROP 2>/dev/null;",
                 " sudo -n iptables -A OUTPUT -p tcp --dport 443 -j DROP 2>/dev/null;",
             ).to_string()
+        }
+        NetMode::FullOutbound => {
+            // No proxy enforcement — allow direct outbound connections.
+            // The proxy is still running and available at 10.0.2.100:3128 for tools
+            // that opt in, but we don't force it via env vars because many tools
+            // (Claude Code, Node.js SDK) hang when proxy env vars are set.
+            String::new()
         }
         NetMode::DevBridge => String::new(),
     }
