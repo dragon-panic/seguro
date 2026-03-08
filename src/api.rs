@@ -24,10 +24,11 @@
 use std::path::PathBuf;
 use std::io::IsTerminal;
 use std::process::Stdio;
+use std::sync::Arc;
 use std::time::Duration;
 
 use color_eyre::eyre::{Result, WrapErr, eyre};
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, Mutex, Notify};
 use tokio::time::Instant;
 
 /// Controls where guest command I/O is routed.
@@ -49,6 +50,44 @@ pub enum OutputMode {
 pub enum OutputChunk {
     Stdout(Vec<u8>),
     Stderr(Vec<u8>),
+}
+
+/// How to handle unexpected QEMU process exits.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum RestartStrategy {
+    /// Never restart (default). Current behavior.
+    #[default]
+    Never,
+    /// Restart only on non-zero / signal exit.
+    OnFailure,
+    /// Always restart, even on clean exit.
+    Always,
+}
+
+/// Controls automatic restart of the QEMU process on crash.
+#[derive(Debug, Clone)]
+pub struct RestartPolicy {
+    pub strategy: RestartStrategy,
+    /// Maximum number of restarts before giving up.
+    pub max_restarts: u32,
+    /// Backoff durations between restarts. Cycles through the list,
+    /// staying on the last value once exhausted.
+    /// Default: [1s, 5s, 15s].
+    pub backoff: Vec<Duration>,
+}
+
+impl Default for RestartPolicy {
+    fn default() -> Self {
+        Self {
+            strategy: RestartStrategy::Never,
+            max_restarts: 3,
+            backoff: vec![
+                Duration::from_secs(1),
+                Duration::from_secs(5),
+                Duration::from_secs(15),
+            ],
+        }
+    }
 }
 
 use crate::cli::NetMode;
@@ -99,6 +138,8 @@ pub struct SandboxConfig {
     pub stdout: OutputMode,
     /// Where to route guest command stderr.
     pub stderr: OutputMode,
+    /// Restart policy for QEMU crashes. Default: never restart.
+    pub restart_policy: RestartPolicy,
 }
 
 impl Default for SandboxConfig {
@@ -115,8 +156,22 @@ impl Default for SandboxConfig {
             timeout: None,
             stdout: OutputMode::Inherit,
             stderr: OutputMode::Inherit,
+            restart_policy: RestartPolicy::default(),
         }
     }
+}
+
+/// Stored parameters needed to re-launch QEMU on restart.
+struct QemuLaunchParams {
+    overlay_path: PathBuf,
+    virtiofs_sock: PathBuf,
+    ssh_port: u16,
+    proxy_port: u16,
+    cidata_disk: PathBuf,
+    memory_mb: u32,
+    smp: u32,
+    env_vars: Vec<(String, String)>,
+    ssh_timeout: Duration,
 }
 
 /// A running sandboxed VM session.
@@ -126,13 +181,17 @@ impl Default for SandboxConfig {
 /// prefer calling [`Sandbox::kill`] for clean shutdown.
 pub struct Sandbox {
     session: Session,
-    qemu: vm::QemuProcess,
+    qemu: Arc<Mutex<vm::QemuProcess>>,
     virtiofsd: Virtiofsd,
     _proxy: ProxyServer,
     net: NetMode,
     timeout: Option<Duration>,
     stdout: OutputMode,
     stderr: OutputMode,
+    /// Signals the monitor task to stop.
+    shutdown: Arc<Notify>,
+    /// Handle to the background monitor task (if restart policy != Never).
+    _monitor: Option<tokio::task::JoinHandle<()>>,
 }
 
 impl Sandbox {
@@ -231,6 +290,33 @@ impl Sandbox {
         let ssh_timeout = Duration::from_secs(file_config.ssh_timeout() as u64);
         vm::wait_for_ssh(session.ssh_port, ssh_timeout).await?;
 
+        let qemu = Arc::new(Mutex::new(qemu));
+        let shutdown = Arc::new(Notify::new());
+
+        // Spawn crash monitor if restart policy is not Never
+        let monitor = if config.restart_policy.strategy != RestartStrategy::Never {
+            let launch_params = QemuLaunchParams {
+                overlay_path: session.overlay_path.clone(),
+                virtiofs_sock,
+                ssh_port: session.ssh_port,
+                proxy_port: session.proxy_port,
+                cidata_disk: cidata_path,
+                memory_mb,
+                smp,
+                env_vars,
+                ssh_timeout,
+            };
+            let handle = spawn_crash_monitor(
+                Arc::clone(&qemu),
+                config.restart_policy.clone(),
+                launch_params,
+                Arc::clone(&shutdown),
+            );
+            Some(handle)
+        } else {
+            None
+        };
+
         Ok(Self {
             session,
             qemu,
@@ -240,6 +326,8 @@ impl Sandbox {
             timeout: config.timeout,
             stdout: config.stdout,
             stderr: config.stderr,
+            shutdown,
+            _monitor: monitor,
         })
     }
 
@@ -427,15 +515,138 @@ impl Sandbox {
 
     /// Kill the VM and all child processes. Cleans up session state.
     pub async fn kill(mut self) -> Result<()> {
-        let _ = self.qemu.kill();
+        // Signal the monitor to stop before killing QEMU
+        self.shutdown.notify_waiters();
+        {
+            let mut qemu = self.qemu.lock().await;
+            let _ = qemu.kill();
+        }
         let _ = self.virtiofsd.kill();
         self.session.cleanup().await
     }
 
     /// Wait for the QEMU process to exit (e.g. if the guest shuts itself down).
-    pub async fn wait(&mut self) -> Result<std::process::ExitStatus> {
-        self.qemu.wait().await
+    pub async fn wait(&self) -> Result<std::process::ExitStatus> {
+        let mut qemu = self.qemu.lock().await;
+        qemu.wait().await
     }
+}
+
+/// Background task that monitors the QEMU process and restarts it on crash.
+fn spawn_crash_monitor(
+    qemu: Arc<Mutex<vm::QemuProcess>>,
+    policy: RestartPolicy,
+    params: QemuLaunchParams,
+    shutdown: Arc<Notify>,
+) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
+        let mut restart_count: u32 = 0;
+
+        loop {
+            // Wait for QEMU to exit or shutdown signal
+            let exit_status = {
+                let mut qemu = qemu.lock().await;
+                tokio::select! {
+                    status = qemu.wait() => {
+                        match status {
+                            Ok(s) => s,
+                            Err(e) => {
+                                tracing::error!("error waiting for QEMU: {e}");
+                                return;
+                            }
+                        }
+                    }
+                    _ = shutdown.notified() => {
+                        tracing::debug!("crash monitor: shutdown signal received");
+                        return;
+                    }
+                }
+            };
+
+            // Check if we should restart
+            let should_restart = match policy.strategy {
+                RestartStrategy::Never => false,
+                RestartStrategy::Always => true,
+                RestartStrategy::OnFailure => !exit_status.success(),
+            };
+
+            if !should_restart {
+                tracing::info!(
+                    code = ?exit_status.code(),
+                    "QEMU exited, restart not needed (strategy={:?})",
+                    policy.strategy
+                );
+                return;
+            }
+
+            if restart_count >= policy.max_restarts {
+                tracing::error!(
+                    count = restart_count,
+                    max = policy.max_restarts,
+                    "QEMU crashed but max restarts exceeded — giving up"
+                );
+                return;
+            }
+
+            // Backoff
+            let delay_idx = (restart_count as usize).min(policy.backoff.len().saturating_sub(1));
+            let delay = policy.backoff.get(delay_idx).copied().unwrap_or(Duration::from_secs(1));
+            tracing::warn!(
+                code = ?exit_status.code(),
+                restart = restart_count + 1,
+                max = policy.max_restarts,
+                delay_ms = delay.as_millis() as u64,
+                "QEMU crashed — restarting after backoff"
+            );
+
+            // Wait for backoff or shutdown
+            tokio::select! {
+                _ = tokio::time::sleep(delay) => {}
+                _ = shutdown.notified() => {
+                    tracing::debug!("crash monitor: shutdown during backoff");
+                    return;
+                }
+            }
+
+            // Re-launch QEMU with the same parameters
+            let qemu_params = QemuParams {
+                overlay_path: &params.overlay_path,
+                virtiofs_sock: &params.virtiofs_sock,
+                ssh_port: params.ssh_port,
+                proxy_port: params.proxy_port,
+                cidata_disk: &params.cidata_disk,
+                memory_mb: params.memory_mb,
+                smp: params.smp,
+                env_vars: &params.env_vars,
+                silent: true,
+            };
+
+            match vm::start_qemu(&qemu_params).await {
+                Ok(new_qemu) => {
+                    tracing::info!(pid = new_qemu.id(), "QEMU restarted successfully");
+
+                    // Wait for SSH to become available
+                    if let Err(e) = vm::wait_for_ssh(params.ssh_port, params.ssh_timeout).await {
+                        tracing::error!("SSH not available after restart: {e}");
+                        // Store the new process anyway so kill() can clean it up
+                        *qemu.lock().await = new_qemu;
+                        return;
+                    }
+
+                    *qemu.lock().await = new_qemu;
+                    restart_count += 1;
+                    tracing::info!(
+                        restart = restart_count,
+                        "QEMU restarted and SSH ready"
+                    );
+                }
+                Err(e) => {
+                    tracing::error!("failed to restart QEMU: {e}");
+                    return;
+                }
+            }
+        }
+    })
 }
 
 /// Read from an output handle according to the mode.

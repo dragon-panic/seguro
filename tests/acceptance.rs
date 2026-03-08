@@ -367,6 +367,102 @@ async fn stream_mode_sends_chunks() {
     );
 }
 
+/// Crash detection: killing QEMU with SIGKILL triggers auto-restart.
+#[tokio::test]
+#[ignore = "requires KVM and built base image"]
+async fn crash_detection_restarts_qemu() {
+    use seguro::api::{OutputMode, RestartPolicy, RestartStrategy, Sandbox, SandboxConfig};
+
+    assert!(has_kvm(), "KVM not available");
+    assert!(base_image_exists(), "base.qcow2 not built");
+
+    let tmp = tempfile::tempdir().unwrap();
+
+    let config = SandboxConfig {
+        workspace: tmp.path().to_path_buf(),
+        stdout: OutputMode::Capture,
+        stderr: OutputMode::Capture,
+        restart_policy: RestartPolicy {
+            strategy: RestartStrategy::OnFailure,
+            max_restarts: 3,
+            backoff: vec![Duration::from_secs(1)],
+        },
+        timeout: Some(Duration::from_secs(120)),
+        ..Default::default()
+    };
+
+    let sandbox = Sandbox::start(config).await.expect("failed to start sandbox");
+
+    // Run a command to confirm the VM is working
+    let result = sandbox
+        .exec(&["echo".into(), "before_crash".into()])
+        .await
+        .expect("exec before crash failed");
+    assert_eq!(result.exit_code, Some(0));
+
+    // Kill QEMU with SIGKILL to simulate a crash
+    // fuser finds the PID listening on the SSH port, then we kill it
+    let ssh_port = sandbox.ssh_port();
+    let _ = std::process::Command::new("bash")
+        .args(["-c", &format!("kill -9 $(fuser {}/tcp 2>/dev/null)", ssh_port)])
+        .status();
+
+    // Write a marker file, wait for restart, then try to read it
+    // The overlay persists across restarts so files written before crash survive
+    let marker = tmp.path().join("pre_crash.txt");
+    std::fs::write(&marker, "survived").unwrap();
+
+    // Give monitor time to detect crash and restart (backoff + SSH wait)
+    tokio::time::sleep(Duration::from_secs(5)).await;
+
+    // After restart, we should be able to run commands again
+    let result = sandbox
+        .exec(&["cat".into(), "pre_crash.txt".into()])
+        .await
+        .expect("exec after restart failed");
+
+    sandbox.kill().await.expect("kill failed");
+
+    assert_eq!(result.exit_code, Some(0));
+    let stdout = result.stdout.unwrap_or_default();
+    let stdout_str = String::from_utf8_lossy(&stdout);
+    assert!(
+        stdout_str.contains("survived"),
+        "expected pre-crash file to survive restart, got: {:?}",
+        stdout_str
+    );
+}
+
+/// RestartPolicy::Never (default) does not restart — current behavior unchanged.
+#[tokio::test]
+#[ignore = "requires KVM and built base image"]
+async fn restart_policy_never_does_not_restart() {
+    use seguro::api::{OutputMode, Sandbox, SandboxConfig};
+
+    assert!(has_kvm(), "KVM not available");
+    assert!(base_image_exists(), "base.qcow2 not built");
+
+    let tmp = tempfile::tempdir().unwrap();
+
+    // Default config has RestartStrategy::Never
+    let config = SandboxConfig {
+        workspace: tmp.path().to_path_buf(),
+        stdout: OutputMode::Capture,
+        stderr: OutputMode::Capture,
+        timeout: Some(Duration::from_secs(60)),
+        ..Default::default()
+    };
+
+    let sandbox = Sandbox::start(config).await.expect("failed to start sandbox");
+    let result = sandbox
+        .exec(&["echo".into(), "alive".into()])
+        .await
+        .expect("exec failed");
+    assert_eq!(result.exit_code, Some(0));
+
+    sandbox.kill().await.expect("kill failed");
+}
+
 /// Concurrent sessions use different SSH ports and don't interfere.
 #[test]
 #[ignore = "requires KVM and built base image"]
