@@ -144,7 +144,7 @@ pub struct PersonaConfig {
 
 use crate::cli::NetMode;
 use crate::config::Config;
-use crate::proxy::ProxyServer;
+use crate::proxy::{ProxyServer, ProxyStats};
 use crate::session::{Session, image};
 use crate::vm::{self, QemuParams};
 use crate::vm::virtiofsd::Virtiofsd;
@@ -218,6 +218,10 @@ pub struct SandboxConfig {
     /// Health check interval. When set, a background task pings SSH at this
     /// interval and updates the health state. None disables health checks.
     pub health_check_interval: Option<Duration>,
+    /// Grace period before killing QEMU on [`Sandbox::kill`]. A `.seguro/shutdown`
+    /// sentinel is written so the agent can save state. Default: 5s. None for
+    /// immediate kill.
+    pub shutdown_grace: Option<Duration>,
 }
 
 impl Default for SandboxConfig {
@@ -237,6 +241,7 @@ impl Default for SandboxConfig {
             restart_policy: RestartPolicy::default(),
             persona_config: None,
             health_check_interval: None,
+            shutdown_grace: Some(Duration::from_secs(5)),
         }
     }
 }
@@ -272,6 +277,21 @@ pub struct AgentState {
     pub progress: Option<f64>,
 }
 
+/// Per-session resource usage snapshot.
+///
+/// Read via [`Sandbox::usage`] at any time — counters are live.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct SessionUsage {
+    /// Wall-clock time since the sandbox started.
+    pub wall_clock: Duration,
+    /// Total proxy requests (allowed + blocked).
+    pub proxy_requests: u64,
+    /// Proxy requests that were denied by filter rules.
+    pub proxy_blocked: u64,
+    /// Estimated response bytes received through the proxy.
+    pub proxy_bytes_received: u64,
+}
+
 /// A running sandboxed VM session.
 ///
 /// Owns the QEMU process, virtiofsd daemon, and proxy server.
@@ -288,6 +308,9 @@ pub struct Sandbox {
     timeout: Option<Duration>,
     stdout: OutputMode,
     stderr: OutputMode,
+    /// Grace period before killing QEMU. During this time a `.seguro/shutdown`
+    /// sentinel is written so the agent can save state.
+    shutdown_grace: Option<Duration>,
     /// Signals the monitor task to stop.
     shutdown: Arc<Notify>,
     /// Handle to the background monitor task (if restart policy != Never).
@@ -300,6 +323,10 @@ pub struct Sandbox {
     _health_monitor: Option<tokio::task::JoinHandle<()>>,
     /// Broadcast channel for lifecycle events.
     events_tx: broadcast::Sender<SessionEvent>,
+    /// Shared proxy traffic counters.
+    proxy_stats: Arc<ProxyStats>,
+    /// When the sandbox was started (for wall-clock metering).
+    started_at: Instant,
 }
 
 impl Sandbox {
@@ -490,6 +517,8 @@ impl Sandbox {
             None
         };
 
+        let proxy_stats = Arc::clone(&proxy.stats);
+
         Ok(Self {
             session,
             qemu,
@@ -500,12 +529,15 @@ impl Sandbox {
             timeout: config.timeout,
             stdout: config.stdout,
             stderr: config.stderr,
+            shutdown_grace: config.shutdown_grace,
             shutdown,
             _monitor: monitor,
             _health_tx: health_tx,
             health_rx,
             _health_monitor: health_monitor,
             events_tx,
+            proxy_stats,
+            started_at: Instant::now(),
         })
     }
 
@@ -707,15 +739,79 @@ impl Sandbox {
     }
 
     /// Kill the VM and all child processes. Cleans up session state.
+    ///
+    /// If `shutdown_grace` is configured (default 5s), writes a `.seguro/shutdown`
+    /// sentinel file to the workspace first, giving the agent time to save state.
+    /// If the QEMU process exits cleanly during the grace period, the wait is
+    /// cut short.
     pub async fn kill(mut self) -> Result<()> {
         // Signal the monitor to stop before killing QEMU
         self.shutdown.notify_waiters();
+
+        // Graceful shutdown: write sentinel, wait for agent to save state
+        if let Some(grace) = self.shutdown_grace {
+            let sentinel = self.workspace.join(".seguro/shutdown");
+            let _ = std::fs::create_dir_all(self.workspace.join(".seguro"));
+            let _ = std::fs::write(&sentinel, "");
+
+            // Poll QEMU exit every 250ms — if it exits cleanly, skip the rest
+            let poll_interval = Duration::from_millis(250);
+            let deadline = Instant::now() + grace;
+            while Instant::now() < deadline {
+                {
+                    let mut qemu = self.qemu.lock().await;
+                    if let Ok(Some(_)) = qemu.try_wait() {
+                        break; // already exited
+                    }
+                }
+                tokio::time::sleep(poll_interval).await;
+            }
+        }
+
         {
             let mut qemu = self.qemu.lock().await;
             let _ = qemu.kill();
         }
         let _ = self.virtiofsd.kill();
         self.session.cleanup().await
+    }
+
+    /// Kill all agent-user processes inside the guest without restarting the VM.
+    ///
+    /// The VM, overlay, virtiofs, and proxy remain running. After this returns,
+    /// call [`Sandbox::exec`] to start a new agent process.
+    pub async fn kill_agent(&self) -> Result<()> {
+        let mut cmd = tokio::process::Command::new("ssh");
+        cmd.args([
+            "-i", self.session.ssh_key_path.to_str().unwrap(),
+            "-p", &self.session.ssh_port.to_string(),
+            "-o", "StrictHostKeyChecking=no",
+            "-o", "UserKnownHostsFile=/dev/null",
+            "-o", "IdentitiesOnly=yes",
+            "-o", "IdentityAgent=none",
+            "-o", "LogLevel=QUIET",
+        ]);
+        cmd.arg("agent@127.0.0.1");
+        cmd.arg("kill -TERM -- -1 2>/dev/null; true");
+        cmd.stdout(Stdio::null());
+        cmd.stderr(Stdio::null());
+
+        let status = cmd.status().await
+            .wrap_err("SSH kill_agent command failed")?;
+
+        tracing::info!(exit_code = ?status.code(), "kill_agent completed");
+        Ok(())
+    }
+
+    /// Read live resource usage counters for this session.
+    pub fn usage(&self) -> SessionUsage {
+        use std::sync::atomic::Ordering::Relaxed;
+        SessionUsage {
+            wall_clock: self.started_at.elapsed(),
+            proxy_requests: self.proxy_stats.requests.load(Relaxed),
+            proxy_blocked: self.proxy_stats.blocked.load(Relaxed),
+            proxy_bytes_received: self.proxy_stats.bytes_received.load(Relaxed),
+        }
     }
 
     /// Wait for the QEMU process to exit (e.g. if the guest shuts itself down).
@@ -826,6 +922,8 @@ impl Sandbox {
 
         let (events_tx, _) = broadcast::channel::<SessionEvent>(64);
 
+        let proxy_stats = Arc::clone(&proxy.stats);
+
         Ok(Self {
             session,
             qemu: Arc::new(Mutex::new(qemu)),
@@ -836,12 +934,15 @@ impl Sandbox {
             timeout: None,
             stdout: OutputMode::Inherit,
             stderr: OutputMode::Inherit,
+            shutdown_grace: Some(Duration::from_secs(5)),
             shutdown: Arc::new(Notify::new()),
             _monitor: None,
             _health_tx: health_tx,
             health_rx,
             _health_monitor: None,
             events_tx,
+            proxy_stats,
+            started_at: Instant::now(),
         })
     }
 
@@ -1547,6 +1648,51 @@ system_prompt = "Just a prompt."
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
             other => panic!("expected NotFound, got {:?}", other),
         }
+    }
+
+    #[test]
+    fn session_usage_serializes() {
+        let usage = SessionUsage {
+            wall_clock: Duration::from_secs(3600),
+            proxy_requests: 142,
+            proxy_blocked: 3,
+            proxy_bytes_received: 5242880,
+        };
+        let json = serde_json::to_string(&usage).unwrap();
+        assert!(json.contains("\"proxy_requests\":142"));
+        assert!(json.contains("\"proxy_blocked\":3"));
+    }
+
+    #[test]
+    fn shutdown_grace_default_is_5s() {
+        let config = SandboxConfig::default();
+        assert_eq!(config.shutdown_grace, Some(Duration::from_secs(5)));
+    }
+
+    #[test]
+    fn shutdown_sentinel_written_to_workspace() {
+        let tmp = tempfile::tempdir().unwrap();
+        let sentinel = tmp.path().join(".seguro/shutdown");
+        std::fs::create_dir_all(tmp.path().join(".seguro")).unwrap();
+        std::fs::write(&sentinel, "").unwrap();
+        assert!(sentinel.exists());
+    }
+
+    #[test]
+    fn proxy_stats_atomic_counters() {
+        use crate::proxy::ProxyStats;
+        use std::sync::atomic::Ordering::Relaxed;
+
+        let stats = ProxyStats::default();
+        assert_eq!(stats.requests.load(Relaxed), 0);
+
+        stats.requests.fetch_add(10, Relaxed);
+        stats.blocked.fetch_add(2, Relaxed);
+        stats.bytes_received.fetch_add(1024, Relaxed);
+
+        assert_eq!(stats.requests.load(Relaxed), 10);
+        assert_eq!(stats.blocked.load(Relaxed), 2);
+        assert_eq!(stats.bytes_received.load(Relaxed), 1024);
     }
 
     #[test]

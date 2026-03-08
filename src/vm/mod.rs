@@ -24,6 +24,11 @@ impl QemuProcess {
     pub async fn wait(&mut self) -> Result<std::process::ExitStatus> {
         self.child.wait().await.wrap_err("waiting for QEMU to exit")
     }
+
+    /// Check if QEMU has exited without blocking.
+    pub fn try_wait(&mut self) -> Result<Option<std::process::ExitStatus>> {
+        self.child.try_wait().wrap_err("checking QEMU exit status")
+    }
 }
 
 /// Parameters for building the QEMU command line.

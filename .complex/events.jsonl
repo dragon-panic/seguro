@@ -251,3 +251,13 @@
 {"ts":"2026-03-08T17:37:27.435531649+00:00","action":"claim","node_id":"2QAB.AHrf","part":"claude","reason":"implementing alongside rJol — shared workspace plumbing"}
 {"ts":"2026-03-08T17:39:07.367943479+00:00","action":"integrate","node_id":"2QAB.rJol","reason":"agent_state() primitive — synchronous virtiofs read, no watcher"}
 {"ts":"2026-03-08T17:39:08.189212439+00:00","action":"integrate","node_id":"2QAB.AHrf","reason":"inject() + pending_messages() primitives — synchronous virtiofs write"}
+{"ts":"2026-03-08T17:42:54.718669490+00:00","action":"claim","node_id":"2QAB.5PfE","part":"claude","reason":"implementing graceful shutdown"}
+{"ts":"2026-03-08T17:42:55.620334708+00:00","action":"claim","node_id":"2QAB.GCvU","part":"claude","reason":"implementing alongside 5PfE and JRAu"}
+{"ts":"2026-03-08T17:42:56.103281640+00:00","action":"claim","node_id":"2QAB.JRAu","part":"claude","reason":"implementing resource metering"}
+{"ts":"2026-03-08T17:43:26.747303561+00:00","action":"edit","node_id":"2QAB.5PfE"}
+{"ts":"2026-03-08T17:43:26.748561956+00:00","action":"edit","node_id":"2QAB.GCvU"}
+{"ts":"2026-03-08T17:43:26.750027093+00:00","action":"edit","node_id":"2QAB.JRAu"}
+{"ts":"2026-03-08T17:46:07.944155830+00:00","action":"integrate","node_id":"2QAB.5PfE","reason":"graceful shutdown via .seguro/shutdown sentinel + configurable grace period"}
+{"ts":"2026-03-08T17:46:07.945680104+00:00","action":"integrate","node_id":"2QAB.GCvU","reason":"kill_agent() SSHes in and kills agent processes, Ox handles re-exec"}
+{"ts":"2026-03-08T17:46:07.947639433+00:00","action":"integrate","node_id":"2QAB.JRAu","reason":"live SessionUsage via atomic proxy counters + wall clock"}
+{"ts":"2026-03-08T17:46:15.502505624+00:00","action":"surface","node_id":"2QAB.wwoN","reason":"blockers 5PfE and rJol are integrated"}

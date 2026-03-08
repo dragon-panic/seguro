@@ -5,6 +5,7 @@ pub mod log;
 use std::net::SocketAddr;
 use std::path::Path;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use color_eyre::eyre::{Result, WrapErr};
 use http_body_util::{BodyExt, Empty, Full};
@@ -21,12 +22,23 @@ use log::{RequestLog, RequestRecord};
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
+/// Atomic counters for proxy traffic, shared between proxy task and Sandbox.
+#[derive(Debug, Default)]
+pub struct ProxyStats {
+    pub requests: AtomicU64,
+    pub blocked: AtomicU64,
+    pub bytes_sent: AtomicU64,
+    pub bytes_received: AtomicU64,
+}
+
 /// A running proxy server.
 pub struct ProxyServer {
     pub port: u16,
     _task: tokio::task::JoinHandle<()>,
     /// PEM-encoded CA certificate if TLS inspection is active; None otherwise.
     ca_cert_pem: Option<String>,
+    /// Shared traffic counters — readable by Sandbox::usage().
+    pub stats: Arc<ProxyStats>,
 }
 
 impl ProxyServer {
@@ -49,7 +61,8 @@ impl ProxyServer {
             .wrap_err("binding proxy port")?;
         let port = listener.local_addr()?.port();
 
-        let state = Arc::new(ProxyState::new(config, mode, tls_inspect, session_dir)?);
+        let stats = Arc::new(ProxyStats::default());
+        let state = Arc::new(ProxyState::new(config, mode, tls_inspect, session_dir, Arc::clone(&stats))?);
         let ca_cert_pem = state.ca_cert_pem().map(|s| s.to_owned());
 
         let task = tokio::spawn(async move {
@@ -57,7 +70,7 @@ impl ProxyServer {
         });
 
         tracing::info!(port, "proxy server started");
-        Ok(Self { port, _task: task, ca_cert_pem })
+        Ok(Self { port, _task: task, ca_cert_pem, stats })
     }
 }
 
@@ -70,6 +83,8 @@ struct ProxyState {
     log: RequestLog,
     /// Present when --tls-inspect was requested; used to sign per-domain certs.
     ca: Option<Arc<Ca>>,
+    /// Shared atomic counters for traffic metering.
+    stats: Arc<ProxyStats>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -81,7 +96,7 @@ enum ProxyMode {
 }
 
 impl ProxyState {
-    fn new(config: &Config, mode: &NetMode, tls_inspect: bool, session_dir: &Path) -> Result<Self> {
+    fn new(config: &Config, mode: &NetMode, tls_inspect: bool, session_dir: &Path, stats: Arc<ProxyStats>) -> Result<Self> {
         let pmode = match mode {
             NetMode::AirGapped => ProxyMode::AirGapped,
             NetMode::ApiOnly => ProxyMode::ApiOnly,
@@ -103,6 +118,7 @@ impl ProxyState {
             deny_hosts: config.proxy.deny.hosts.clone(),
             log,
             ca,
+            stats,
         })
     }
 
@@ -161,6 +177,15 @@ impl ProxyState {
         blocked: bool,
         reason: Option<String>,
     ) {
+        // Update atomic counters
+        self.stats.requests.fetch_add(1, Ordering::Relaxed);
+        if blocked {
+            self.stats.blocked.fetch_add(1, Ordering::Relaxed);
+        }
+        if let Some(b) = bytes {
+            self.stats.bytes_received.fetch_add(b, Ordering::Relaxed);
+        }
+
         let record = RequestRecord {
             ts: RequestRecord::now(),
             method: method.to_string(),
