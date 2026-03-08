@@ -32,12 +32,14 @@ pub fn locate_base(browser: bool, config_override: Option<&Path>) -> Result<Path
 pub async fn create_overlay(base: &Path, overlay: &Path) -> Result<()> {
     let status = tokio::process::Command::new("qemu-img")
         .args([
-            "create",
+            "create", "-q",
             "-f", "qcow2",
             "-b", base.to_str().ok_or_else(|| eyre!("non-UTF8 path"))?,
             "-F", "qcow2",
             overlay.to_str().ok_or_else(|| eyre!("non-UTF8 path"))?,
         ])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
         .status()
         .await
         .wrap_err("launching qemu-img create")?;

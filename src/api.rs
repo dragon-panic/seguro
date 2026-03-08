@@ -11,18 +11,30 @@
 //!     ..Default::default()
 //! };
 //!
-//! let mut sandbox = Sandbox::start(config).await?;
-//! let status = sandbox.exec(&["claude".into(), "--help".into()]).await?;
+//! let sandbox = Sandbox::start(config).await?;
+//! let result = sandbox.exec(&["claude".into(), "--help".into()]).await?;
+//! println!("exit={:?} timed_out={} duration={:?}", result.exit_code, result.timed_out, result.duration);
 //! sandbox.kill().await?;
 //! # Ok(())
 //! # }
 //! ```
 
 use std::path::PathBuf;
-use std::process::ExitStatus;
+use std::process::Stdio;
 use std::time::Duration;
 
 use color_eyre::eyre::{Result, WrapErr, eyre};
+use tokio::time::Instant;
+
+/// Controls where guest command I/O is routed.
+#[derive(Debug, Clone, Copy, Default)]
+pub enum OutputMode {
+    /// Inherit parent's stdout/stderr (default).
+    #[default]
+    Inherit,
+    /// Discard all output.
+    Null,
+}
 
 use crate::cli::NetMode;
 use crate::config::Config;
@@ -30,6 +42,17 @@ use crate::proxy::ProxyServer;
 use crate::session::{Session, image};
 use crate::vm::{self, QemuParams};
 use crate::vm::virtiofsd::Virtiofsd;
+
+/// Result of executing a command in the sandbox.
+#[derive(Debug)]
+pub struct SessionResult {
+    /// Process exit code. None if the process was killed or timed out.
+    pub exit_code: Option<i32>,
+    /// Whether the session was terminated due to timeout.
+    pub timed_out: bool,
+    /// Wall-clock duration of the exec() call.
+    pub duration: Duration,
+}
 
 /// Configuration for starting a sandboxed session.
 pub struct SandboxConfig {
@@ -51,6 +74,10 @@ pub struct SandboxConfig {
     pub browser: bool,
     /// Kill the session after this duration. None means no timeout.
     pub timeout: Option<Duration>,
+    /// Where to route guest command stdout.
+    pub stdout: OutputMode,
+    /// Where to route guest command stderr.
+    pub stderr: OutputMode,
 }
 
 impl Default for SandboxConfig {
@@ -65,6 +92,8 @@ impl Default for SandboxConfig {
             persistent: false,
             browser: false,
             timeout: None,
+            stdout: OutputMode::Inherit,
+            stderr: OutputMode::Inherit,
         }
     }
 }
@@ -81,6 +110,8 @@ pub struct Sandbox {
     _proxy: ProxyServer,
     net: NetMode,
     timeout: Option<Duration>,
+    stdout: OutputMode,
+    stderr: OutputMode,
 }
 
 impl Sandbox {
@@ -167,6 +198,8 @@ impl Sandbox {
             _proxy: proxy,
             net: config.net,
             timeout: config.timeout,
+            stdout: config.stdout,
+            stderr: config.stderr,
         })
     }
 
@@ -180,11 +213,11 @@ impl Sandbox {
         self.session.ssh_port
     }
 
-    /// Run a command in the guest via SSH. Returns the exit status.
+    /// Run a command in the guest via SSH.
     ///
     /// An empty `command` slice starts an interactive shell (typically
     /// only useful from the CLI, not programmatic use).
-    pub async fn exec(&self, command: &[String]) -> Result<ExitStatus> {
+    pub async fn exec(&self, command: &[String]) -> Result<SessionResult> {
         let mut cmd = tokio::process::Command::new("ssh");
         cmd.args([
             "-i", self.session.ssh_key_path.to_str().unwrap(),
@@ -196,6 +229,16 @@ impl Sandbox {
             "-o", "LogLevel=QUIET",
             "agent@127.0.0.1",
         ]);
+
+        // Route stdout/stderr per config
+        match self.stdout {
+            OutputMode::Inherit => { cmd.stdout(Stdio::inherit()); }
+            OutputMode::Null => { cmd.stdout(Stdio::null()); }
+        }
+        match self.stderr {
+            OutputMode::Inherit => { cmd.stderr(Stdio::inherit()); }
+            OutputMode::Null => { cmd.stderr(Stdio::null()); }
+        }
 
         // Mount virtiofs, source env vars, cd into workspace
         cmd.arg(concat!(
@@ -214,17 +257,31 @@ impl Sandbox {
             cmd.arg(quoted.join(" "));
         }
 
+        let start = Instant::now();
+
         if let Some(timeout) = self.timeout {
             match tokio::time::timeout(timeout, cmd.status()).await {
-                Ok(result) => Ok(result.wrap_err("executing command in guest")?),
-                Err(_) => Err(eyre!(
-                    "session timed out after {}s",
-                    timeout.as_secs()
-                )),
+                Ok(result) => {
+                    let status = result.wrap_err("executing command in guest")?;
+                    Ok(SessionResult {
+                        exit_code: status.code(),
+                        timed_out: false,
+                        duration: start.elapsed(),
+                    })
+                }
+                Err(_) => Ok(SessionResult {
+                    exit_code: None,
+                    timed_out: true,
+                    duration: start.elapsed(),
+                }),
             }
         } else {
             let status = cmd.status().await.wrap_err("executing command in guest")?;
-            Ok(status)
+            Ok(SessionResult {
+                exit_code: status.code(),
+                timed_out: false,
+                duration: start.elapsed(),
+            })
         }
     }
 
@@ -236,7 +293,7 @@ impl Sandbox {
     }
 
     /// Wait for the QEMU process to exit (e.g. if the guest shuts itself down).
-    pub async fn wait(&mut self) -> Result<ExitStatus> {
+    pub async fn wait(&mut self) -> Result<std::process::ExitStatus> {
         self.qemu.wait().await
     }
 }

@@ -16,8 +16,10 @@ pub async fn execute(args: RunArgs) -> Result<()> {
         ));
     }
 
+    let verbose = args.verbose;
+
     // ── Resolve workspace ─────────────────────────────────────────────────────
-    let (workspace, temp_workspace) = resolve_workspace(&args.share)?;
+    let (workspace, temp_workspace) = resolve_workspace(&args.share, verbose)?;
 
     // ── Build env vars (pass through from host) ─────────────────────────────
     let env_vars: Vec<(String, String)> = [
@@ -43,26 +45,29 @@ pub async fn execute(args: RunArgs) -> Result<()> {
         persistent: args.persistent,
         browser: args.browser,
         timeout: args.timeout.map(Duration::from_secs),
+        ..Default::default()
     };
 
     // ── Save terminal state ────────────────────────────────────────────────
-    // QEMU's -serial mon:stdio puts the terminal into raw mode and doesn't
-    // restore it on exit, leaving the shell broken (no echo).
     use std::os::fd::AsFd;
     let saved_termios = nix::sys::termios::tcgetattr(std::io::stdin().as_fd()).ok();
 
-    println!("Starting sandbox…");
+    if verbose {
+        eprintln!("Starting sandbox…");
+    }
 
     let sandbox = Sandbox::start(config).await?;
     let session_id = sandbox.id().to_owned();
 
-    println!("Session {} started.", session_id);
-    println!("Workspace: {}", workspace.display());
-    println!("SSH port:  {}", sandbox.ssh_port());
-    println!("Guest is ready.");
+    if verbose {
+        eprintln!("Session {} started.", session_id);
+        eprintln!("Workspace: {}", workspace.display());
+        eprintln!("SSH port:  {}", sandbox.ssh_port());
+        eprintln!("Guest is ready.");
+    }
 
     // ── Execute agent command (or interactive shell) ───────────────────────
-    let agent_result = sandbox.exec(&args.agent).await;
+    let result = sandbox.exec(&args.agent).await?;
 
     // ── Graceful shutdown ─────────────────────────────────────────────────
     tokio::select! {
@@ -89,15 +94,22 @@ pub async fn execute(args: RunArgs) -> Result<()> {
         if let Some(tmp) = temp_workspace {
             let _ = std::fs::remove_dir_all(&tmp);
         }
-    } else {
-        println!("Session {} kept (--persistent).", session_id);
+    } else if verbose {
+        eprintln!("Session {} kept (--persistent).", session_id);
     }
 
-    agent_result.map(|_| ())
+    if result.timed_out {
+        return Err(eyre!("session timed out after {}s", result.duration.as_secs()));
+    }
+    match result.exit_code {
+        Some(0) => Ok(()),
+        Some(code) => Err(eyre!("agent exited with code {}", code)),
+        None => Err(eyre!("agent process was killed")),
+    }
 }
 
 /// Resolve the workspace directory. Returns (workspace_path, temp_dir_if_created).
-fn resolve_workspace(share: &Option<PathBuf>) -> Result<(PathBuf, Option<PathBuf>)> {
+fn resolve_workspace(share: &Option<PathBuf>, verbose: bool) -> Result<(PathBuf, Option<PathBuf>)> {
     if let Some(p) = share {
         if !p.exists() {
             return Err(eyre!("--share path does not exist: {}", p.display()));
@@ -108,6 +120,8 @@ fn resolve_workspace(share: &Option<PathBuf>) -> Result<(PathBuf, Option<PathBuf
     let tmp = std::env::temp_dir()
         .join(format!("seguro-workspace-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&tmp)?;
-    println!("Workspace: {} (temp, will be deleted on exit; use --persistent to keep)", tmp.display());
+    if verbose {
+        eprintln!("Workspace: {} (temp, will be deleted on exit; use --persistent to keep)", tmp.display());
+    }
     Ok((tmp.clone(), Some(tmp)))
 }

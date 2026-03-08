@@ -56,6 +56,10 @@ pub struct RunArgs {
     #[arg(long, value_name = "SECONDS")]
     pub timeout: Option<u64>,
 
+    /// Show boot progress, virtiofsd output, and session metadata
+    #[arg(long, short)]
+    pub verbose: bool,
+
     /// Agent command to run inside the VM (omit for an interactive shell)
     #[arg(last = true)]
     pub agent: Vec<String>,

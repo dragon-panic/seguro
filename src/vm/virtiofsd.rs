@@ -39,6 +39,8 @@ impl Virtiofsd {
                 "--sandbox=namespace",
                 "--log-level=warn",
             ])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
             .spawn()
             .wrap_err("launching virtiofsd")?;
 

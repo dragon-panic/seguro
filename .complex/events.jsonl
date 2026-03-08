@@ -150,3 +150,5 @@
 {"ts":"2026-03-08T01:34:58.466585680+00:00","action":"integrate","node_id":"zGGV.3fPA","reason":"all subtasks done, API complete, tests pass"}
 {"ts":"2026-03-08T01:42:02.011647781+00:00","action":"claim","node_id":"zGGV.Xzlm","part":"claude","reason":"implementing session timeout"}
 {"ts":"2026-03-08T01:43:04.470636894+00:00","action":"integrate","node_id":"zGGV.Xzlm","reason":"timeout implemented, tests pass"}
+{"ts":"2026-03-08T01:55:25.855352213+00:00","action":"claim","node_id":"zGGV.JP03","part":"claude","reason":"structured output + quiet-by-default"}
+{"ts":"2026-03-08T01:59:41.662707724+00:00","action":"integrate","node_id":"zGGV.JP03","reason":"SessionResult, OutputMode, quiet-by-default, --verbose flag, all demos pass clean"}
