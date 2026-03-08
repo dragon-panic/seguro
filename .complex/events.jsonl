@@ -229,3 +229,5 @@
 {"ts":"2026-03-08T17:12:58.579335260+00:00","action":"integrate","node_id":"vWsL.8KjF","reason":"health monitoring with watch channel, background SSH heartbeat, all tests pass"}
 {"ts":"2026-03-08T17:13:10.320229860+00:00","action":"claim","node_id":"vWsL.8gR8","part":"claude","reason":"last task under vWsL"}
 {"ts":"2026-03-08T17:16:55.209930298+00:00","action":"integrate","node_id":"vWsL.8gR8","reason":"broadcast events for all lifecycle transitions, all tests pass"}
+{"ts":"2026-03-08T17:17:12.477406576+00:00","action":"surface","node_id":"vWsL"}
+{"ts":"2026-03-08T17:17:12.479288795+00:00","action":"integrate","node_id":"vWsL","reason":"all 6 subtasks complete: structured exec, crash detection, persona injection, state persistence, health monitoring, event stream"}
