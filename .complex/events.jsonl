@@ -211,3 +211,5 @@
 {"ts":"2026-03-08T16:43:15.443457175+00:00","action":"surface","node_id":"vWsL.Ltud"}
 {"ts":"2026-03-08T16:43:15.445220532+00:00","action":"surface","node_id":"vWsL.nPY8"}
 {"ts":"2026-03-08T16:43:15.446799406+00:00","action":"surface","node_id":"vWsL.vqyv"}
+{"ts":"2026-03-08T16:45:02.757397308+00:00","action":"rm","node_id":"vWsL.YKNn","detail":"Multi-session manager (concurrent VM pool)"}
+{"ts":"2026-03-08T16:45:12.075536315+00:00","action":"rename","node_id":"vWsL","detail":"Ox-ready: session resilience for single-VM lifecycle"}
