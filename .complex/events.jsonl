@@ -180,3 +180,15 @@
 {"ts":"2026-03-08T02:41:09.990461179+00:00","action":"integrate","node_id":"QMjh.d2t6"}
 {"ts":"2026-03-08T03:05:59.297447430+00:00","action":"claim","node_id":"zGGV.J1Qg","part":"claude"}
 {"ts":"2026-03-08T03:09:38.638660820+00:00","action":"integrate","node_id":"zGGV.J1Qg"}
+{"ts":"2026-03-08T16:26:47.175911390+00:00","action":"integrate","node_id":"zGGV"}
+{"ts":"2026-03-08T16:26:47.177357769+00:00","action":"integrate","node_id":"QMjh"}
+{"ts":"2026-03-08T16:26:52.071053667+00:00","action":"create","node_id":"0oQW","detail":"Session fixes: PTY, credentials, proxy, Claude Code"}
+{"ts":"2026-03-08T16:27:05.946647318+00:00","action":"edit","node_id":"0oQW"}
+{"ts":"2026-03-08T16:27:05.947804988+00:00","action":"surface","node_id":"0oQW"}
+{"ts":"2026-03-08T16:27:05.949418282+00:00","action":"integrate","node_id":"0oQW"}
+{"ts":"2026-03-08T16:27:15.091787010+00:00","action":"create","node_id":"qHBF","detail":"elu integration — replace build-image.sh"}
+{"ts":"2026-03-08T16:27:15.093012547+00:00","action":"create","node_id":"F4LD","detail":"Transparent proxy for non-proxy-aware tools"}
+{"ts":"2026-03-08T16:27:15.094428458+00:00","action":"create","node_id":"QpKy","detail":"Computer use (CUA) profile — Xvfb, VNC, --gui flag"}
+{"ts":"2026-03-08T16:27:39.154945473+00:00","action":"edit","node_id":"qHBF"}
+{"ts":"2026-03-08T16:27:39.156148901+00:00","action":"edit","node_id":"F4LD"}
+{"ts":"2026-03-08T16:27:39.157357469+00:00","action":"edit","node_id":"QpKy"}

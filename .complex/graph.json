@@ -11,22 +11,31 @@
       "updated_at": "2026-03-08T00:25:07.300689571Z"
     },
     {
-      "id": "zGGV",
-      "title": "Agent Sandbox",
+      "id": "qHBF",
+      "title": "elu integration — replace build-image.sh",
       "state": "latent",
       "shadowed": false,
       "part": null,
-      "created_at": "2026-03-08T00:36:50.434875305Z",
-      "updated_at": "2026-03-08T00:36:50.434875305Z"
+      "created_at": "2026-03-08T16:27:15.091628965Z",
+      "updated_at": "2026-03-08T16:27:15.091628965Z"
     },
     {
-      "id": "QMjh",
-      "title": "Data-driven VM profiles",
+      "id": "F4LD",
+      "title": "Transparent proxy for non-proxy-aware tools",
       "state": "latent",
       "shadowed": false,
       "part": null,
-      "created_at": "2026-03-08T02:25:12.596854893Z",
-      "updated_at": "2026-03-08T02:25:12.596854893Z"
+      "created_at": "2026-03-08T16:27:15.092905621Z",
+      "updated_at": "2026-03-08T16:27:15.092905621Z"
+    },
+    {
+      "id": "QpKy",
+      "title": "Computer use (CUA) profile — Xvfb, VNC, --gui flag",
+      "state": "latent",
+      "shadowed": false,
+      "part": null,
+      "created_at": "2026-03-08T16:27:15.094294522Z",
+      "updated_at": "2026-03-08T16:27:15.094294522Z"
     }
   ],
   "edges": []
