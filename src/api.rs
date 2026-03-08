@@ -28,7 +28,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use color_eyre::eyre::{Result, WrapErr, eyre};
-use tokio::sync::{mpsc, watch, Mutex, Notify};
+use tokio::sync::{broadcast, mpsc, watch, Mutex, Notify};
 use tokio::time::Instant;
 
 /// Controls where guest command I/O is routed.
@@ -101,6 +101,28 @@ pub enum HealthState {
     Unresponsive,
     /// QEMU process has exited.
     Dead,
+}
+
+/// Lifecycle event emitted by a sandbox session.
+///
+/// Subscribe via [`Sandbox::events`] to receive these in real-time.
+/// Ox maps these to its SSE stream for UI visibility.
+#[derive(Debug, Clone)]
+pub enum SessionEvent {
+    /// QEMU process started, session allocated.
+    Started { session_id: String },
+    /// SSH banner detected — guest is ready for commands.
+    SshReady { session_id: String, port: u16 },
+    /// A command execution began.
+    ExecStarted { session_id: String, command: Vec<String> },
+    /// Health state changed.
+    HealthChanged { session_id: String, state: HealthState },
+    /// QEMU process exited unexpectedly.
+    Crashed { session_id: String, exit_code: Option<i32> },
+    /// QEMU process restarted after a crash.
+    Restarted { session_id: String, attempt: u32 },
+    /// A command execution completed.
+    Completed { session_id: String, exit_code: Option<i32>, duration: Duration },
 }
 
 /// Persona configuration loaded from a TOML file.
@@ -256,6 +278,8 @@ pub struct Sandbox {
     health_rx: watch::Receiver<HealthState>,
     /// Handle to the health check task.
     _health_monitor: Option<tokio::task::JoinHandle<()>>,
+    /// Broadcast channel for lifecycle events.
+    events_tx: broadcast::Sender<SessionEvent>,
 }
 
 impl Sandbox {
@@ -360,10 +384,16 @@ impl Sandbox {
             silent: true,
         };
 
+        let (events_tx, _) = broadcast::channel::<SessionEvent>(64);
+
         let qemu = vm::start_qemu(&qemu_params).await?;
         if let Some(pid) = qemu.id() {
             session.record_qemu_pid(pid)?;
         }
+
+        let _ = events_tx.send(SessionEvent::Started {
+            session_id: session.id.clone(),
+        });
 
         // Write session metadata
         let meta = SessionMeta {
@@ -389,6 +419,11 @@ impl Sandbox {
         let ssh_timeout = Duration::from_secs(file_config.ssh_timeout() as u64);
         vm::wait_for_ssh(session.ssh_port, ssh_timeout).await?;
 
+        let _ = events_tx.send(SessionEvent::SshReady {
+            session_id: session.id.clone(),
+            port: session.ssh_port,
+        });
+
         let qemu = Arc::new(Mutex::new(qemu));
         let shutdown = Arc::new(Notify::new());
 
@@ -410,6 +445,8 @@ impl Sandbox {
                 config.restart_policy.clone(),
                 launch_params,
                 Arc::clone(&shutdown),
+                events_tx.clone(),
+                session.id.clone(),
             );
             Some(handle)
         } else {
@@ -425,6 +462,8 @@ impl Sandbox {
                 interval,
                 health_tx.clone(),
                 Arc::clone(&shutdown),
+                events_tx.clone(),
+                session.id.clone(),
             );
             Some(handle)
         } else {
@@ -445,6 +484,7 @@ impl Sandbox {
             _health_tx: health_tx,
             health_rx,
             _health_monitor: health_monitor,
+            events_tx,
         })
     }
 
@@ -476,6 +516,11 @@ impl Sandbox {
         stdout_mode: &OutputMode,
         stderr_mode: &OutputMode,
     ) -> Result<SessionResult> {
+        let _ = self.events_tx.send(SessionEvent::ExecStarted {
+            session_id: self.session.id.clone(),
+            command: command.to_vec(),
+        });
+
         let interactive = command.is_empty();
         let capturing = matches!(stdout_mode, OutputMode::Capture | OutputMode::Stream(_))
             || matches!(stderr_mode, OutputMode::Capture | OutputMode::Stream(_));
@@ -533,11 +578,21 @@ impl Sandbox {
 
         let start = Instant::now();
 
-        if capturing {
+        let result = if capturing {
             self.exec_capturing(cmd, stdout_mode, stderr_mode, start).await
         } else {
             self.exec_simple(cmd, start).await
+        };
+
+        if let Ok(ref r) = result {
+            let _ = self.events_tx.send(SessionEvent::Completed {
+                session_id: self.session.id.clone(),
+                exit_code: r.exit_code,
+                duration: r.duration,
+            });
         }
+
+        result
     }
 
     /// Execute with Inherit/Null modes — uses `cmd.status()`.
@@ -748,6 +803,8 @@ impl Sandbox {
 
         let (health_tx, health_rx) = watch::channel(HealthState::Healthy);
 
+        let (events_tx, _) = broadcast::channel::<SessionEvent>(64);
+
         Ok(Self {
             session,
             qemu: Arc::new(Mutex::new(qemu)),
@@ -762,6 +819,7 @@ impl Sandbox {
             _health_tx: health_tx,
             health_rx,
             _health_monitor: None,
+            events_tx,
         })
     }
 
@@ -779,6 +837,14 @@ impl Sandbox {
         self.health_rx.clone()
     }
 
+    /// Subscribe to lifecycle events (Started, SshReady, Crashed, etc).
+    ///
+    /// Returns a broadcast receiver. Multiple subscribers can exist.
+    /// Events that arrive before subscribing are not replayed.
+    pub fn events(&self) -> broadcast::Receiver<SessionEvent> {
+        self.events_tx.subscribe()
+    }
+
     /// Read the persisted session metadata.
     pub fn meta(&self) -> Result<SessionMeta> {
         let path = self.session.runtime_dir.join("session.json");
@@ -794,6 +860,8 @@ fn spawn_crash_monitor(
     policy: RestartPolicy,
     params: QemuLaunchParams,
     shutdown: Arc<Notify>,
+    events_tx: broadcast::Sender<SessionEvent>,
+    session_id: String,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         let mut restart_count: u32 = 0;
@@ -843,6 +911,11 @@ fn spawn_crash_monitor(
                 );
                 return;
             }
+
+            let _ = events_tx.send(SessionEvent::Crashed {
+                session_id: session_id.clone(),
+                exit_code: exit_status.code(),
+            });
 
             // Backoff
             let delay_idx = (restart_count as usize).min(policy.backoff.len().saturating_sub(1));
@@ -895,6 +968,10 @@ fn spawn_crash_monitor(
                         restart = restart_count,
                         "QEMU restarted and SSH ready"
                     );
+                    let _ = events_tx.send(SessionEvent::Restarted {
+                        session_id: session_id.clone(),
+                        attempt: restart_count,
+                    });
                 }
                 Err(e) => {
                     tracing::error!("failed to restart QEMU: {e}");
@@ -911,6 +988,8 @@ fn spawn_health_monitor(
     interval: Duration,
     tx: watch::Sender<HealthState>,
     shutdown: Arc<Notify>,
+    events_tx: broadcast::Sender<SessionEvent>,
+    session_id: String,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         loop {
@@ -927,6 +1006,10 @@ fn spawn_health_monitor(
             if state != prev {
                 tracing::info!(?prev, ?state, "health state changed");
                 let _ = tx.send(state);
+                let _ = events_tx.send(SessionEvent::HealthChanged {
+                    session_id: session_id.clone(),
+                    state,
+                });
             }
         }
     })
@@ -1264,6 +1347,25 @@ system_prompt = "Just a prompt."
     fn health_state_default_is_healthy() {
         let (_, rx) = watch::channel(HealthState::Healthy);
         assert_eq!(*rx.borrow(), HealthState::Healthy);
+    }
+
+    #[test]
+    fn event_broadcast_channel_works() {
+        let (tx, mut rx1) = broadcast::channel::<SessionEvent>(16);
+        let mut rx2 = tx.subscribe();
+
+        let _ = tx.send(SessionEvent::Started {
+            session_id: "test-1".into(),
+        });
+
+        match rx1.try_recv().unwrap() {
+            SessionEvent::Started { session_id } => assert_eq!(session_id, "test-1"),
+            _ => panic!("expected Started event"),
+        }
+        match rx2.try_recv().unwrap() {
+            SessionEvent::Started { session_id } => assert_eq!(session_id, "test-1"),
+            _ => panic!("expected Started event on second subscriber"),
+        }
     }
 
     #[test]
