@@ -420,7 +420,8 @@ src/
   lib.rs               — library target, exposes all modules
   api.rs               — programmatic API: Sandbox, SandboxConfig, OutputMode,
                          RestartPolicy, PersonaConfig, SessionMeta, HealthState,
-                         SessionEvent, crash/health monitors
+                         SessionEvent, AgentState, SessionUsage, WorkspaceState,
+                         crash/health monitors, orchestrator primitives
   cli.rs               — all clap structs
   config.rs            — seguro.toml schema + loading + project override merge +
                          ProfileConfig + built-in profiles
@@ -575,6 +576,28 @@ All lifecycle transitions emit `SessionEvent` through a `broadcast` channel:
 
 API: `sandbox.events()` returns a `broadcast::Receiver<SessionEvent>`. Multiple subscribers receive all events.
 
+#### Orchestrator primitives
+
+Six synchronous methods for orchestrator integration (e.g. Ox). These are primitives — seguro provides the read/write operations, the orchestrator owns polling frequency, staleness detection, and escalation policy.
+
+**Agent state reporting:**
+`sandbox.agent_state()` reads `.seguro/status.json` from the virtiofs workspace (no SSH). Returns `Option<AgentState>` with fields `state` (string), `updated_at`, optional `task` and `progress`. Returns `None` if the file is missing or malformed (tolerates partial writes).
+
+**Message injection:**
+`sandbox.inject(message)` writes a timestamped `.md` file to `.seguro/inbox/` on virtiofs. Atomic write (temp + rename). The agent reads inbox files at turn boundaries (e.g. via a Claude Code hook). `sandbox.pending_messages()` counts unread `.md` files in the inbox directory.
+
+**Graceful shutdown:**
+`sandbox.kill()` writes a `.seguro/shutdown` sentinel file to the workspace before killing QEMU, then waits a configurable grace period (default 5s, set via `SandboxConfig::shutdown_grace`). During the grace period, QEMU is polled — if it exits cleanly, the wait is cut short. The agent can watch for the sentinel to save state before the VM disappears.
+
+**Agent restart (without VM restart):**
+`sandbox.kill_agent()` SSHes into the guest and kills all agent-user processes. The VM stays running — overlay, virtiofs, and proxy are untouched. The orchestrator calls `exec()` again to start a new agent. Enables fast restart (~instant) vs full VM restart (3-5s).
+
+**Resource metering:**
+`sandbox.usage()` returns live `SessionUsage` with wall-clock duration, proxy request count, blocked request count, and bytes received. Proxy counters are atomic — readable at any time without coordination.
+
+**Workspace state inspection:**
+`sandbox.workspace_state()` runs `git` on the host-side workspace path (no SSH) and returns `WorkspaceState` with `is_git_repo`, `has_uncommitted`, `has_unpushed`, and `dirty_files` count. Used for pre-kill verification — the orchestrator can refuse to terminate sessions with unpushed work. `sessions prune` also checks workspace state and skips dirty sessions unless `--force` is passed.
+
 ### Startup checks
 
 On every invocation `seguro` verifies:
@@ -605,7 +628,7 @@ All three failures produce a clear, actionable error message rather than a crypt
 12. Wait for SSH to become available (poll with exponential backoff)
 13. Spawn crash monitor (if restart policy ≠ Never) and health monitor (if interval set)
 14. `ssh` into the guest and exec the requested agent command
-15. On agent exit: kill QEMU, stop virtiofsd, stop proxy, clean up `/run/seguro/${SESSION_ID}/`
+15. On agent exit: write `.seguro/shutdown` sentinel, wait grace period, kill QEMU, stop virtiofsd, stop proxy, clean up `/run/seguro/${SESSION_ID}/`
 16. If `--persistent`: keep the session overlay and workspace
 
 ### `--share` default behaviour
@@ -619,7 +642,7 @@ Usage:
   seguro run [--persistent] [--share PATH] [--profile NAME] [--browser] [--net MODE] [-- AGENT...]
   seguro shell [SESSION_ID]         # open a shell in a running session
   seguro sessions ls                # list active and saved sessions
-  seguro sessions prune             # delete orphaned session overlays and /run state
+  seguro sessions prune [--force]    # delete orphaned session overlays and /run state
   seguro snapshot save NAME         # save running session state as a named snapshot
   seguro snapshot restore NAME      # start a session from a named snapshot
   seguro images ls                  # list base images

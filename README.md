@@ -89,7 +89,7 @@ seguro run --browser --share ./myproject -- claude
 seguro run [OPTIONS] [-- AGENT...]     Run an agent in a sandboxed VM
 seguro shell [SESSION_ID]              Open a shell in a running session
 seguro sessions ls                     List active and saved sessions
-seguro sessions prune                  Remove orphaned session state
+seguro sessions prune [--force]        Remove orphaned session state
 seguro snapshot save NAME              Save session state as a named snapshot
 seguro snapshot restore NAME           Restore a session from a snapshot
 seguro images ls                       List available base images
