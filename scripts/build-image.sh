@@ -170,6 +170,7 @@ runcmd:
   - mkdir -p /home/agent/workspace
   - chown agent:agent /home/agent/workspace
   - npm install -g @anthropic-ai/claude-code
+  - su - agent -c 'curl --proto =https --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable'
 
 power_state:
   mode: poweroff

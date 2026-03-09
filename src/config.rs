@@ -298,7 +298,7 @@ impl Config {
                     ("PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD".into(), "1".into()),
                 ]),
             },
-            "default" | _ => ProfileConfig {
+            _ => ProfileConfig {
                 image_suffix: None,
                 memory_mb: Some(2048),
                 smp: Some(2),

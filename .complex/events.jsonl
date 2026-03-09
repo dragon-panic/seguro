@@ -265,3 +265,7 @@
 {"ts":"2026-03-08T17:47:28.118955642+00:00","action":"edit","node_id":"2QAB.wwoN"}
 {"ts":"2026-03-08T17:49:28.037040705+00:00","action":"integrate","node_id":"2QAB.wwoN","reason":"workspace_state() primitive + sessions prune --force safety check"}
 {"ts":"2026-03-08T17:49:42.984679243+00:00","action":"integrate","node_id":"2QAB","reason":"all 6 orchestrator primitives implemented"}
+{"ts":"2026-03-09T03:03:45.788132471+00:00","action":"create","node_id":"Ppjo","detail":"Base image needs Rust toolchain — rustup at boot fills tmpfs overlay"}
+{"ts":"2026-03-09T03:04:43.513821593+00:00","action":"surface","node_id":"Ppjo"}
+{"ts":"2026-03-09T03:04:43.515814772+00:00","action":"claim","node_id":"Ppjo","part":"claude"}
+{"ts":"2026-03-09T03:05:27.327244783+00:00","action":"integrate","node_id":"Ppjo","reason":"added rustup stable install to build-image.sh runcmd"}
