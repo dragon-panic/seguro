@@ -269,3 +269,8 @@
 {"ts":"2026-03-09T03:04:43.513821593+00:00","action":"surface","node_id":"Ppjo"}
 {"ts":"2026-03-09T03:04:43.515814772+00:00","action":"claim","node_id":"Ppjo","part":"claude"}
 {"ts":"2026-03-09T03:05:27.327244783+00:00","action":"integrate","node_id":"Ppjo","reason":"added rustup stable install to build-image.sh runcmd"}
+{"ts":"2026-03-10T16:28:59.909261094+00:00","action":"create","node_id":"YhJD","detail":"Named/multiple mount points"}
+{"ts":"2026-03-10T16:29:00.387216385+00:00","action":"create","node_id":"0aWW","detail":"Environment variable injection at launch"}
+{"ts":"2026-03-10T16:29:01.396831898+00:00","action":"create","node_id":"ZRAq","detail":"Read-only source mount flag"}
+{"ts":"2026-03-10T16:29:11.061983995+00:00","action":"surface","node_id":"YhJD"}
+{"ts":"2026-03-10T16:29:11.063602106+00:00","action":"surface","node_id":"0aWW"}
