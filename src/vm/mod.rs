@@ -31,11 +31,24 @@ impl QemuProcess {
     }
 }
 
+/// A virtiofs mount to expose to the guest.
+#[derive(Debug, Clone)]
+pub struct MountSpec {
+    /// Host-side virtiofsd socket path.
+    pub socket: std::path::PathBuf,
+    /// Virtio tag (e.g. "seguro0").
+    pub tag: String,
+    /// Guest mount point (e.g. "~/workspace", "/repo").
+    pub guest: String,
+    /// Mount read-only on the guest side.
+    pub readonly: bool,
+}
+
 /// Parameters for building the QEMU command line.
 pub struct QemuParams<'a> {
     pub overlay_path: &'a Path,
-    /// Host path to the virtiofsd socket for the shared workspace.
-    pub virtiofs_sock: &'a Path,
+    /// virtiofs mount specifications (one virtiofsd per mount).
+    pub mount_specs: &'a [MountSpec],
     pub ssh_port: u16,
     pub proxy_port: u16,
     /// Host path to the NoCloud seed disk (FAT12, 512 KB) for cloud-init.
@@ -86,15 +99,17 @@ pub async fn start_qemu(params: &QemuParams<'_>) -> Result<QemuProcess> {
     ]);
     cmd.args(["-device", "virtio-net-pci,netdev=net0"]);
 
-    // virtiofs shared workspace (via virtiofsd daemon started by the session)
-    cmd.args([
-        "-chardev",
-        &format!(
-            "socket,id=char0,path={}",
-            params.virtiofs_sock.display()
-        ),
-    ]);
-    cmd.args(["-device", "vhost-user-fs-pci,chardev=char0,tag=workspace"]);
+    // virtiofs mounts (one chardev + device per mount, all share the same memory backend)
+    for (i, spec) in params.mount_specs.iter().enumerate() {
+        cmd.args([
+            "-chardev",
+            &format!("socket,id=char{i},path={}", spec.socket.display()),
+        ]);
+        cmd.args([
+            "-device",
+            &format!("vhost-user-fs-pci,chardev=char{i},tag={}", spec.tag),
+        ]);
+    }
 
     // Shared memory backend required by virtiofs
     cmd.args([

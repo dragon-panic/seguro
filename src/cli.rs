@@ -1,5 +1,4 @@
 use clap::{Args, Parser, Subcommand, ValueEnum};
-use std::path::PathBuf;
 
 #[derive(Parser)]
 #[command(name = "seguro", about = "Sandbox CLI coding agents inside a QEMU VM")]
@@ -28,9 +27,18 @@ pub enum Commands {
 
 #[derive(Args)]
 pub struct RunArgs {
-    /// Directory to share with the VM (read-write); defaults to a temp dir
+    /// Mount a host directory into the VM. Repeatable.
+    ///
+    /// Formats:  --share /host/path              (mounts at ~/workspace)
+    ///           --share /host/path:/guest/path   (explicit guest path)
+    ///           --share /host/path:/guest/path:ro (read-only)
     #[arg(long)]
-    pub share: Option<PathBuf>,
+    pub share: Vec<String>,
+
+    /// Inject an environment variable into the VM session.
+    /// Repeatable. Format: --env KEY=VALUE
+    #[arg(long = "env")]
+    pub extra_env: Vec<String>,
 
     /// Keep the session overlay and workspace after exit
     #[arg(long)]

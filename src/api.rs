@@ -1,12 +1,16 @@
 //! Programmatic API for managing sandboxed sessions.
 //!
 //! ```no_run
-//! use seguro::api::{OutputMode, SandboxConfig, Sandbox};
+//! use seguro::api::{Mount, OutputMode, SandboxConfig, Sandbox};
 //! use seguro::cli::NetMode;
 //!
 //! # async fn example() -> color_eyre::eyre::Result<()> {
 //! let config = SandboxConfig {
-//!     workspace: "/home/user/project".into(),
+//!     mounts: vec![Mount {
+//!         host: "/home/user/project".into(),
+//!         guest: "~/workspace".into(),
+//!         readonly: false,
+//!     }],
 //!     env_vars: vec![("ANTHROPIC_API_KEY".into(), "sk-...".into())],
 //!     stdout: OutputMode::Capture,
 //!     stderr: OutputMode::Capture,
@@ -146,8 +150,19 @@ use crate::cli::NetMode;
 use crate::config::Config;
 use crate::proxy::{ProxyServer, ProxyStats};
 use crate::session::{Session, image};
-use crate::vm::{self, QemuParams};
+use crate::vm::{self, QemuParams, MountSpec};
 use crate::vm::virtiofsd::Virtiofsd;
+
+/// A host→guest directory mount via virtiofs.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct Mount {
+    /// Absolute host path to share.
+    pub host: PathBuf,
+    /// Guest mount point (e.g. "~/workspace", "/repo").
+    pub guest: String,
+    /// Mount read-only (enforced at the guest mount level).
+    pub readonly: bool,
+}
 
 /// Persistent session metadata written to `runtime_dir/session.json`.
 ///
@@ -159,7 +174,11 @@ pub struct SessionMeta {
     pub proxy_port: u16,
     pub overlay_path: PathBuf,
     pub ssh_key_path: PathBuf,
+    /// Primary workspace path (first mount's host path). Kept for backwards compat.
     pub workspace: PathBuf,
+    /// All mounts. Empty in old session.json files — falls back to `workspace` at ~/workspace.
+    #[serde(default)]
+    pub mounts: Vec<Mount>,
     pub base_image: PathBuf,
     pub memory_mb: u32,
     pub smp: u32,
@@ -185,8 +204,12 @@ pub struct SessionResult {
 
 /// Configuration for starting a sandboxed session.
 pub struct SandboxConfig {
-    /// Host directory to share with the guest via virtiofs.
-    pub workspace: PathBuf,
+    /// Host directories to share with the guest via virtiofs.
+    ///
+    /// The first mount's host path is used for config discovery (`.seguro.toml`),
+    /// credential injection, and env var files. If empty, a temp directory is
+    /// created and mounted at `~/workspace`.
+    pub mounts: Vec<Mount>,
     /// Network isolation mode.
     pub net: NetMode,
     /// Enable TLS inspection (MITM CA injected into guest).
@@ -227,7 +250,7 @@ pub struct SandboxConfig {
 impl Default for SandboxConfig {
     fn default() -> Self {
         Self {
-            workspace: PathBuf::new(),
+            mounts: Vec::new(),
             net: NetMode::FullOutbound,
             tls_inspect: false,
             env_vars: Vec::new(),
@@ -249,7 +272,7 @@ impl Default for SandboxConfig {
 /// Stored parameters needed to re-launch QEMU on restart.
 struct QemuLaunchParams {
     overlay_path: PathBuf,
-    virtiofs_sock: PathBuf,
+    mount_specs: Vec<MountSpec>,
     ssh_port: u16,
     proxy_port: u16,
     cidata_disk: PathBuf,
@@ -316,11 +339,13 @@ pub struct SessionUsage {
 pub struct Sandbox {
     session: Session,
     qemu: Arc<Mutex<vm::QemuProcess>>,
-    virtiofsd: Virtiofsd,
+    virtiofsd_procs: Vec<Virtiofsd>,
     _proxy: ProxyServer,
     net: NetMode,
-    /// Host-side path to the virtiofs-shared workspace directory.
+    /// Host-side path to the primary workspace (first mount).
     workspace: PathBuf,
+    /// All mounts for this session.
+    mounts: Vec<Mount>,
     timeout: Option<Duration>,
     stdout: OutputMode,
     stderr: OutputMode,
@@ -348,14 +373,23 @@ pub struct Sandbox {
 impl Sandbox {
     /// Start a new sandbox. Returns once the guest SSH is ready.
     pub async fn start(config: SandboxConfig) -> Result<Self> {
-        if !config.workspace.exists() {
-            return Err(eyre!(
-                "workspace directory does not exist: {}",
-                config.workspace.display()
-            ));
+        // Validate and canonicalize mounts
+        let mut mounts = config.mounts.clone();
+        if mounts.is_empty() {
+            return Err(eyre!("no mounts configured (use --share or add mounts to SandboxConfig)"));
         }
-        let workspace = config.workspace.canonicalize()
-            .wrap_err("canonicalizing workspace path")?;
+        for m in &mut mounts {
+            if !m.host.exists() {
+                return Err(eyre!(
+                    "mount host path does not exist: {}",
+                    m.host.display()
+                ));
+            }
+            m.host = m.host.canonicalize()
+                .wrap_err_with(|| format!("canonicalizing mount path {}", m.host.display()))?;
+        }
+        // Primary workspace = first mount's host path
+        let workspace = mounts[0].host.clone();
 
         let file_config = Config::load(Some(&workspace))?;
 
@@ -426,18 +460,29 @@ impl Sandbox {
             None
         };
 
-        // Inject env vars into workspace
+        // Inject env vars into primary workspace
         inject_workspace_config(&workspace, &env_vars, persona.as_ref())?;
 
-        // Start virtiofsd
-        let virtiofs_sock = session.runtime_dir.join("virtiofs.sock");
-        let virtiofsd = Virtiofsd::start(&workspace, &virtiofs_sock).await?;
-        tracing::info!(pid = virtiofsd.id(), "virtiofsd started");
+        // Start one virtiofsd per mount
+        let mut virtiofsd_procs = Vec::with_capacity(mounts.len());
+        let mut mount_specs = Vec::with_capacity(mounts.len());
+        for (i, m) in mounts.iter().enumerate() {
+            let sock = session.runtime_dir.join(format!("virtiofs-{i}.sock"));
+            let vfsd = Virtiofsd::start(&m.host, &sock).await?;
+            tracing::info!(pid = vfsd.id(), mount = %m.host.display(), tag = i, "virtiofsd started");
+            virtiofsd_procs.push(vfsd);
+            mount_specs.push(MountSpec {
+                socket: sock,
+                tag: format!("seguro{i}"),
+                guest: m.guest.clone(),
+                readonly: m.readonly,
+            });
+        }
 
         // Launch QEMU
         let qemu_params = QemuParams {
             overlay_path: &session.overlay_path,
-            virtiofs_sock: &virtiofs_sock,
+            mount_specs: &mount_specs,
             ssh_port: session.ssh_port,
             proxy_port: session.proxy_port,
             cidata_disk: &cidata_path,
@@ -466,6 +511,7 @@ impl Sandbox {
             overlay_path: session.overlay_path.clone(),
             ssh_key_path: session.ssh_key_path.clone(),
             workspace: workspace.clone(),
+            mounts: mounts.clone(),
             base_image: base_image.clone(),
             memory_mb,
             smp,
@@ -494,7 +540,7 @@ impl Sandbox {
         let monitor = if config.restart_policy.strategy != RestartStrategy::Never {
             let launch_params = QemuLaunchParams {
                 overlay_path: session.overlay_path.clone(),
-                virtiofs_sock,
+                mount_specs,
                 ssh_port: session.ssh_port,
                 proxy_port: session.proxy_port,
                 cidata_disk: cidata_path,
@@ -538,10 +584,11 @@ impl Sandbox {
         Ok(Self {
             session,
             qemu,
-            virtiofsd,
+            virtiofsd_procs,
             _proxy: proxy,
             net: config.net,
             workspace,
+            mounts,
             timeout: config.timeout,
             stdout: config.stdout,
             stderr: config.stderr,
@@ -565,6 +612,39 @@ impl Sandbox {
     /// SSH port the guest is listening on (127.0.0.1).
     pub fn ssh_port(&self) -> u16 {
         self.session.ssh_port
+    }
+
+    /// Build the SSH preamble that mounts all virtiofs shares and sources config.
+    fn build_mount_preamble(&self) -> String {
+        let mut parts = Vec::new();
+
+        // Mount each virtiofs tag
+        for (i, m) in self.mounts.iter().enumerate() {
+            let tag = format!("seguro{i}");
+            let guest = &m.guest;
+            let ro_opt = if m.readonly { " -o ro" } else { "" };
+            parts.push(format!(
+                "sudo -n mkdir -p {guest} && \
+                 (mountpoint -q {guest} 2>/dev/null || \
+                 sudo -n mount -t virtiofs{ro_opt} {tag} {guest});"
+            ));
+        }
+
+        // Source env from the primary mount's guest path
+        let primary_guest = &self.mounts[0].guest;
+        parts.push(format!(
+            " if [ -f {primary_guest}/.seguro/environment ]; then \
+             set -a; . {primary_guest}/.seguro/environment; set +a; fi;"
+        ));
+        parts.push(format!(
+            " if [ -f {primary_guest}/.seguro/.credentials.json ]; then \
+             mkdir -p ~/.claude && \
+             cp {primary_guest}/.seguro/.credentials.json ~/.claude/.credentials.json && \
+             rm {primary_guest}/.seguro/.credentials.json; fi;"
+        ));
+        parts.push(format!(" cd {primary_guest} 2>/dev/null || true;"));
+
+        parts.join(" ")
     }
 
     /// Run a command in the guest via SSH.
@@ -627,13 +707,9 @@ impl Sandbox {
             OutputMode::Capture | OutputMode::Stream(_) => { cmd.stderr(Stdio::piped()); }
         }
 
-        // Mount virtiofs, source env vars, inject credentials, cd into workspace
-        cmd.arg(concat!(
-            "mountpoint -q ~/workspace 2>/dev/null || sudo -n mount -t virtiofs workspace ~/workspace;",
-            " if [ -f ~/workspace/.seguro/environment ]; then set -a; . ~/workspace/.seguro/environment; set +a; fi;",
-            " if [ -f ~/workspace/.seguro/.credentials.json ]; then mkdir -p ~/.claude && cp ~/workspace/.seguro/.credentials.json ~/.claude/.credentials.json && rm ~/workspace/.seguro/.credentials.json; fi;",
-            " cd ~/workspace 2>/dev/null || true;",
-        ));
+        // Mount all virtiofs shares, source env vars, inject credentials
+        let preamble = self.build_mount_preamble();
+        cmd.arg(&preamble);
 
         // Network isolation preamble
         cmd.arg(iptables_preamble(&self.net));
@@ -788,7 +864,9 @@ impl Sandbox {
             let mut qemu = self.qemu.lock().await;
             let _ = qemu.kill();
         }
-        let _ = self.virtiofsd.kill();
+        for vfsd in &mut self.virtiofsd_procs {
+            let _ = vfsd.kill();
+        }
         self.session.cleanup().await
     }
 
@@ -868,6 +946,17 @@ impl Sandbox {
         // Re-inject workspace config (env vars, credentials)
         inject_workspace_config(&meta.workspace, &meta.env_vars, None)?;
 
+        // Resolve mounts — backwards compat: old session.json has empty mounts
+        let mounts = if meta.mounts.is_empty() {
+            vec![Mount {
+                host: meta.workspace.clone(),
+                guest: "~/workspace".into(),
+                readonly: false,
+            }]
+        } else {
+            meta.mounts.clone()
+        };
+
         // Start proxy
         let proxy = ProxyServer::start(
             &file_config,
@@ -876,17 +965,25 @@ impl Sandbox {
             &runtime_dir,
         ).await?;
 
-        // Start virtiofsd
-        let virtiofs_sock = runtime_dir.join("virtiofs.sock");
-        let virtiofsd = Virtiofsd::start(&meta.workspace, &virtiofs_sock).await?;
+        // Start one virtiofsd per mount
+        let mut virtiofsd_procs = Vec::with_capacity(mounts.len());
+        let mut mount_specs = Vec::with_capacity(mounts.len());
+        for (i, m) in mounts.iter().enumerate() {
+            let sock = runtime_dir.join(format!("virtiofs-{i}.sock"));
+            let vfsd = Virtiofsd::start(&m.host, &sock).await?;
+            virtiofsd_procs.push(vfsd);
+            mount_specs.push(MountSpec {
+                socket: sock,
+                tag: format!("seguro{i}"),
+                guest: m.guest.clone(),
+                readonly: m.readonly,
+            });
+        }
 
         // Check if QEMU is still running, otherwise re-launch
         let pid_file = runtime_dir.join("qemu.pid");
         let qemu = if crate::session::image::is_qemu_running(&pid_file) {
-            // QEMU is alive — we can't take ownership of an existing process
-            // via tokio::process::Child, so re-launch with the same overlay
             tracing::info!("existing QEMU process found, re-launching for ownership");
-            // Kill the old one first
             if let Ok(content) = std::fs::read_to_string(&pid_file) {
                 if let Ok(pid) = content.trim().parse::<i32>() {
                     let _ = nix::sys::signal::kill(
@@ -898,7 +995,7 @@ impl Sandbox {
             }
             let params = QemuParams {
                 overlay_path: &meta.overlay_path,
-                virtiofs_sock: &virtiofs_sock,
+                mount_specs: &mount_specs,
                 ssh_port: meta.ssh_port,
                 proxy_port: proxy.port,
                 cidata_disk: &runtime_dir.join("cidata.img"),
@@ -909,10 +1006,9 @@ impl Sandbox {
             };
             vm::start_qemu(&params).await?
         } else {
-            // QEMU is dead — re-launch
             let params = QemuParams {
                 overlay_path: &meta.overlay_path,
-                virtiofs_sock: &virtiofs_sock,
+                mount_specs: &mount_specs,
                 ssh_port: meta.ssh_port,
                 proxy_port: proxy.port,
                 cidata_disk: &runtime_dir.join("cidata.img"),
@@ -951,10 +1047,11 @@ impl Sandbox {
         Ok(Self {
             session,
             qemu: Arc::new(Mutex::new(qemu)),
-            virtiofsd,
+            virtiofsd_procs,
             _proxy: proxy,
             net,
             workspace: meta.workspace,
+            mounts,
             timeout: None,
             stdout: OutputMode::Inherit,
             stderr: OutputMode::Inherit,
@@ -1153,7 +1250,7 @@ fn spawn_crash_monitor(
             // Re-launch QEMU with the same parameters
             let qemu_params = QemuParams {
                 overlay_path: &params.overlay_path,
-                virtiofs_sock: &params.virtiofs_sock,
+                mount_specs: &params.mount_specs,
                 ssh_port: params.ssh_port,
                 proxy_port: params.proxy_port,
                 cidata_disk: &params.cidata_disk,
@@ -1584,6 +1681,11 @@ system_prompt = "Just a prompt."
             overlay_path: "/tmp/overlay.qcow2".into(),
             ssh_key_path: "/tmp/id_ed25519".into(),
             workspace: "/home/user/project".into(),
+            mounts: vec![Mount {
+                host: "/home/user/project".into(),
+                guest: "~/workspace".into(),
+                readonly: false,
+            }],
             base_image: "/home/user/.local/share/seguro/images/base.qcow2".into(),
             memory_mb: 2048,
             smp: 2,
@@ -1600,6 +1702,8 @@ system_prompt = "Just a prompt."
         assert_eq!(parsed.memory_mb, 2048);
         assert_eq!(parsed.env_vars, vec![("KEY".into(), "value".into())]);
         assert_eq!(parsed.net, "full-outbound");
+        assert_eq!(parsed.mounts.len(), 1);
+        assert_eq!(parsed.mounts[0].guest, "~/workspace");
     }
 
     #[tokio::test]

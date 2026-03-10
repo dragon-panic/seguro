@@ -293,7 +293,11 @@ async fn capture_mode_collects_output() {
     let tmp = tempfile::tempdir().unwrap();
 
     let config = SandboxConfig {
-        workspace: tmp.path().to_path_buf(),
+        mounts: vec![seguro::api::Mount {
+            host: tmp.path().to_path_buf(),
+            guest: "~/workspace".into(),
+            readonly: false,
+        }],
         stdout: OutputMode::Capture,
         stderr: OutputMode::Capture,
         timeout: Some(Duration::from_secs(60)),
@@ -332,7 +336,11 @@ async fn stream_mode_sends_chunks() {
     let (tx, mut rx) = mpsc::channel::<OutputChunk>(64);
 
     let config = SandboxConfig {
-        workspace: tmp.path().to_path_buf(),
+        mounts: vec![seguro::api::Mount {
+            host: tmp.path().to_path_buf(),
+            guest: "~/workspace".into(),
+            readonly: false,
+        }],
         stdout: OutputMode::Stream(tx),
         stderr: OutputMode::Capture,
         timeout: Some(Duration::from_secs(60)),
@@ -379,7 +387,11 @@ async fn crash_detection_restarts_qemu() {
     let tmp = tempfile::tempdir().unwrap();
 
     let config = SandboxConfig {
-        workspace: tmp.path().to_path_buf(),
+        mounts: vec![seguro::api::Mount {
+            host: tmp.path().to_path_buf(),
+            guest: "~/workspace".into(),
+            readonly: false,
+        }],
         stdout: OutputMode::Capture,
         stderr: OutputMode::Capture,
         restart_policy: RestartPolicy {
@@ -446,7 +458,11 @@ async fn restart_policy_never_does_not_restart() {
 
     // Default config has RestartStrategy::Never
     let config = SandboxConfig {
-        workspace: tmp.path().to_path_buf(),
+        mounts: vec![seguro::api::Mount {
+            host: tmp.path().to_path_buf(),
+            guest: "~/workspace".into(),
+            readonly: false,
+        }],
         stdout: OutputMode::Capture,
         stderr: OutputMode::Capture,
         timeout: Some(Duration::from_secs(60)),
@@ -490,7 +506,11 @@ AGENT_MODE = "audit"
     .unwrap();
 
     let config = SandboxConfig {
-        workspace: tmp.path().to_path_buf(),
+        mounts: vec![seguro::api::Mount {
+            host: tmp.path().to_path_buf(),
+            guest: "~/workspace".into(),
+            readonly: false,
+        }],
         stdout: OutputMode::Capture,
         stderr: OutputMode::Capture,
         persona_config: Some(persona_path),

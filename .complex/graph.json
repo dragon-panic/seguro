@@ -36,43 +36,7 @@
       "part": null,
       "created_at": "2026-03-08T16:27:15.094294522Z",
       "updated_at": "2026-03-08T16:27:15.094294522Z"
-    },
-    {
-      "id": "YhJD",
-      "title": "Named/multiple mount points",
-      "state": "ready",
-      "shadowed": false,
-      "part": null,
-      "created_at": "2026-03-10T16:28:59.908879208Z",
-      "updated_at": "2026-03-10T16:29:11.061979755Z",
-      "filed_by": "seguro:ox"
-    },
-    {
-      "id": "0aWW",
-      "title": "Environment variable injection at launch",
-      "state": "ready",
-      "shadowed": false,
-      "part": null,
-      "created_at": "2026-03-10T16:29:00.386925295Z",
-      "updated_at": "2026-03-10T16:29:11.063601736Z",
-      "filed_by": "seguro:ox"
-    },
-    {
-      "id": "ZRAq",
-      "title": "Read-only source mount flag",
-      "state": "latent",
-      "shadowed": false,
-      "part": null,
-      "created_at": "2026-03-10T16:29:01.396440452Z",
-      "updated_at": "2026-03-10T16:29:01.396440452Z",
-      "filed_by": "seguro:ox"
     }
   ],
-  "edges": [
-    {
-      "from": "YhJD",
-      "to": "ZRAq",
-      "type": "blocks"
-    }
-  ]
+  "edges": []
 }

@@ -274,3 +274,10 @@
 {"ts":"2026-03-10T16:29:01.396831898+00:00","action":"create","node_id":"ZRAq","detail":"Read-only source mount flag"}
 {"ts":"2026-03-10T16:29:11.061983995+00:00","action":"surface","node_id":"YhJD"}
 {"ts":"2026-03-10T16:29:11.063602106+00:00","action":"surface","node_id":"0aWW"}
+{"ts":"2026-03-10T16:39:28.615838548+00:00","action":"claim","node_id":"YhJD","part":"claude"}
+{"ts":"2026-03-10T16:39:28.617472599+00:00","action":"claim","node_id":"0aWW","part":"claude"}
+{"ts":"2026-03-10T16:46:29.613161306+00:00","action":"surface","node_id":"ZRAq"}
+{"ts":"2026-03-10T16:46:34.442395569+00:00","action":"integrate","node_id":"YhJD","reason":"multi-mount implemented — CLI, virtiofsd, QEMU, preamble all updated"}
+{"ts":"2026-03-10T16:46:51.429857493+00:00","action":"integrate","node_id":"0aWW","reason":"env flag implemented"}
+{"ts":"2026-03-10T16:46:51.431299400+00:00","action":"claim","node_id":"ZRAq","part":"claude"}
+{"ts":"2026-03-10T16:46:51.432738898+00:00","action":"integrate","node_id":"ZRAq","reason":"ro flag implemented"}

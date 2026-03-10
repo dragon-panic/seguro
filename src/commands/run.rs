@@ -4,7 +4,7 @@ use std::time::Duration;
 use color_eyre::eyre::{Result, eyre};
 use tokio::signal;
 
-use crate::api::{Sandbox, SandboxConfig};
+use crate::api::{Mount, Sandbox, SandboxConfig};
 use crate::cli::{NetMode, RunArgs};
 
 pub async fn execute(args: RunArgs) -> Result<()> {
@@ -18,11 +18,11 @@ pub async fn execute(args: RunArgs) -> Result<()> {
 
     let verbose = args.verbose;
 
-    // ── Resolve workspace ─────────────────────────────────────────────────────
-    let (workspace, temp_workspace) = resolve_workspace(&args.share, verbose)?;
+    // ── Parse mounts ──────────────────────────────────────────────────────────
+    let (mounts, temp_workspace) = resolve_mounts(&args.share, verbose)?;
 
-    // ── Build env vars (pass through from host) ─────────────────────────────
-    let env_vars: Vec<(String, String)> = [
+    // ── Build env vars (pass through from host + explicit --env) ─────────────
+    let mut env_vars: Vec<(String, String)> = [
         "ANTHROPIC_API_KEY",
         "OPENAI_API_KEY",
         "GITHUB_TOKEN",
@@ -31,8 +31,19 @@ pub async fn execute(args: RunArgs) -> Result<()> {
     .filter_map(|k| std::env::var(k).ok().map(|v| (k.to_string(), v)))
     .collect();
 
+    // Merge explicit --env KEY=VALUE (these override passthrough)
+    for spec in &args.extra_env {
+        let (k, v) = spec.split_once('=')
+            .ok_or_else(|| eyre!("--env must be KEY=VALUE, got: {spec}"))?;
+        if let Some(existing) = env_vars.iter_mut().find(|(ek, _)| ek == k) {
+            existing.1 = v.to_string();
+        } else {
+            env_vars.push((k.to_string(), v.to_string()));
+        }
+    }
+
     let config = SandboxConfig {
-        workspace: workspace.clone(),
+        mounts: mounts.clone(),
         net: args.net.clone(),
         tls_inspect: args.tls_inspect,
         env_vars,
@@ -48,6 +59,10 @@ pub async fn execute(args: RunArgs) -> Result<()> {
 
     if verbose {
         eprintln!("Starting sandbox…");
+        for m in &mounts {
+            let ro = if m.readonly { " (ro)" } else { "" };
+            eprintln!("  mount: {} → {}{}", m.host.display(), m.guest, ro);
+        }
     }
 
     let sandbox = Sandbox::start(config).await?;
@@ -55,7 +70,6 @@ pub async fn execute(args: RunArgs) -> Result<()> {
 
     if verbose {
         eprintln!("Session {} started.", session_id);
-        eprintln!("Workspace: {}", workspace.display());
         eprintln!("SSH port:  {}", sandbox.ssh_port());
         eprintln!("Guest is ready.");
     }
@@ -102,20 +116,70 @@ pub async fn execute(args: RunArgs) -> Result<()> {
     }
 }
 
-/// Resolve the workspace directory. Returns (workspace_path, temp_dir_if_created).
-fn resolve_workspace(share: &Option<PathBuf>, verbose: bool) -> Result<(PathBuf, Option<PathBuf>)> {
-    if let Some(p) = share {
-        if !p.exists() {
-            return Err(eyre!("--share path does not exist: {}", p.display()));
+/// Parse `--share` arguments into `Mount` structs.
+///
+/// Formats:
+///   /host/path              → mount at ~/workspace (backwards compat)
+///   /host/path:/guest/path  → explicit guest path
+///   /host/path:/guest:ro    → read-only mount
+///
+/// If no `--share` is given, creates a temp dir mounted at ~/workspace.
+fn resolve_mounts(
+    shares: &[String],
+    verbose: bool,
+) -> Result<(Vec<Mount>, Option<PathBuf>)> {
+    if shares.is_empty() {
+        let tmp = std::env::temp_dir()
+            .join(format!("seguro-workspace-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&tmp)?;
+        if verbose {
+            eprintln!("Workspace: {} (temp, will be deleted on exit; use --persistent to keep)", tmp.display());
         }
-        return Ok((p.canonicalize()?, None));
+        return Ok((
+            vec![Mount {
+                host: tmp.clone(),
+                guest: "~/workspace".into(),
+                readonly: false,
+            }],
+            Some(tmp),
+        ));
     }
 
-    let tmp = std::env::temp_dir()
-        .join(format!("seguro-workspace-{}", uuid::Uuid::new_v4()));
-    std::fs::create_dir_all(&tmp)?;
-    if verbose {
-        eprintln!("Workspace: {} (temp, will be deleted on exit; use --persistent to keep)", tmp.display());
+    let mut mounts = Vec::with_capacity(shares.len());
+    for spec in shares {
+        let mount = parse_share_spec(spec)?;
+        if !mount.host.exists() {
+            return Err(eyre!("--share path does not exist: {}", mount.host.display()));
+        }
+        mounts.push(mount);
     }
-    Ok((tmp.clone(), Some(tmp)))
+    Ok((mounts, None))
+}
+
+/// Parse a single `--share` spec string into a `Mount`.
+fn parse_share_spec(spec: &str) -> Result<Mount> {
+    // Split on ':', but be careful with Windows-style paths (not relevant on Linux
+    // but we still handle the common case). On Linux, paths don't contain ':'.
+    let parts: Vec<&str> = spec.split(':').collect();
+    match parts.len() {
+        1 => Ok(Mount {
+            host: PathBuf::from(parts[0]),
+            guest: "~/workspace".into(),
+            readonly: false,
+        }),
+        2 => Ok(Mount {
+            host: PathBuf::from(parts[0]),
+            guest: parts[1].into(),
+            readonly: false,
+        }),
+        3 if parts[2] == "ro" => Ok(Mount {
+            host: PathBuf::from(parts[0]),
+            guest: parts[1].into(),
+            readonly: true,
+        }),
+        _ => Err(eyre!(
+            "invalid --share format: {spec}\n\
+             Expected: /host/path, /host/path:/guest/path, or /host/path:/guest/path:ro"
+        )),
+    }
 }
