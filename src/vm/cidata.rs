@@ -74,7 +74,7 @@ fn build_user_data(pubkey: &str, ca_cert_pem: Option<&str>) -> String {
     s.push_str("  - path: /etc/sudoers.d/agent-iptables\n");
     s.push_str("    permissions: '0440'\n");
     s.push_str("    content: |\n");
-    s.push_str("      agent ALL=(root) NOPASSWD: /usr/sbin/iptables\n");
+    s.push_str("      agent ALL=(root) NOPASSWD: /usr/sbin/iptables, /usr/bin/mkdir, /usr/bin/mount\n");
 
     // TLS inspection CA cert (only when --tls-inspect is active)
     if let Some(pem) = ca_cert_pem {
