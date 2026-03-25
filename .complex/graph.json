@@ -36,6 +36,16 @@
       "part": null,
       "created_at": "2026-03-08T16:27:15.094294522Z",
       "updated_at": "2026-03-08T16:27:15.094294522Z"
+    },
+    {
+      "id": "RMcr",
+      "title": "Provider-aware API usage capture in MITM proxy",
+      "state": "latent",
+      "shadowed": false,
+      "part": null,
+      "created_at": "2026-03-25T20:47:12.111407629Z",
+      "updated_at": "2026-03-25T20:47:12.111407629Z",
+      "filed_by": "ox"
     }
   ],
   "edges": []

@@ -32,11 +32,15 @@ pub fn is_ssrf_blocked(addr: IpAddr) -> bool {
 }
 
 /// Resolve `host` to all IP addresses and check each against the SSRF block list.
-/// Returns an error if DNS resolution fails.
-pub async fn check_ssrf(host: &str, port: u16) -> FilterVerdict {
+/// When `allow_loopback` is true, 127.0.0.0/8 is not blocked (for testing or
+/// dev-bridge scenarios with localhost services).
+pub async fn check_ssrf(host: &str, port: u16, allow_loopback: bool) -> FilterVerdict {
     match tokio::net::lookup_host((host, port)).await {
         Ok(addrs) => {
             for addr in addrs {
+                if allow_loopback && addr.ip().is_loopback() {
+                    continue;
+                }
                 if is_ssrf_blocked(addr.ip()) {
                     return FilterVerdict::Deny(format!(
                         "SSRF: {} resolves to {} which is in a blocked range",

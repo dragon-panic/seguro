@@ -1,3 +1,4 @@
+pub mod ai_usage;
 pub mod ca;
 pub mod filter;
 pub mod log;
@@ -16,6 +17,7 @@ use tokio::net::TcpListener;
 
 use crate::cli::NetMode;
 use crate::config::Config;
+use ai_usage::{ApiUsageLog, ApiUsageRecord, ProviderMap};
 use ca::Ca;
 use filter::{FilterVerdict, check_ssrf, is_api_only_allowed, is_explicitly_denied};
 use log::{RequestLog, RequestRecord};
@@ -29,6 +31,14 @@ pub struct ProxyStats {
     pub blocked: AtomicU64,
     pub bytes_sent: AtomicU64,
     pub bytes_received: AtomicU64,
+    /// AI API requests (subset of total requests).
+    pub ai_requests: AtomicU64,
+    /// Total input tokens across all AI API requests.
+    pub ai_input_tokens: AtomicU64,
+    /// Total output tokens across all AI API requests.
+    pub ai_output_tokens: AtomicU64,
+    /// Total cache-read tokens across all AI API requests.
+    pub ai_cache_read_tokens: AtomicU64,
 }
 
 /// A running proxy server.
@@ -85,6 +95,16 @@ struct ProxyState {
     ca: Option<Arc<Ca>>,
     /// Shared atomic counters for traffic metering.
     stats: Arc<ProxyStats>,
+    /// AI API provider hostname map.
+    providers: ProviderMap,
+    /// Per-session API usage log (only created when TLS inspection is active).
+    ai_log: Option<ApiUsageLog>,
+    /// Allow loopback addresses through SSRF filter (for testing / dev-bridge
+    /// scenarios with localhost services).
+    allow_loopback: bool,
+    /// Skip upstream TLS certificate verification during MITM (for testing
+    /// with self-signed upstream servers).
+    danger_skip_upstream_verify: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -112,6 +132,16 @@ impl ProxyState {
 
         let log = RequestLog::open(session_dir).wrap_err("opening proxy log")?;
 
+        let providers = ProviderMap::new(&config.proxy.ai_providers);
+
+        // Only create the API usage log when TLS inspection is active (we need
+        // decrypted response bodies to extract token counts).
+        let ai_log = if tls_inspect {
+            Some(ApiUsageLog::open(session_dir).wrap_err("opening API usage log")?)
+        } else {
+            None
+        };
+
         Ok(Self {
             mode: pmode,
             allow_hosts: config.proxy.api_only.allow.hosts.clone(),
@@ -119,6 +149,10 @@ impl ProxyState {
             log,
             ca,
             stats,
+            providers,
+            ai_log,
+            allow_loopback: config.proxy.allow_loopback.unwrap_or(false),
+            danger_skip_upstream_verify: config.proxy.danger_skip_upstream_verify.unwrap_or(false),
         })
     }
 
@@ -149,7 +183,7 @@ impl ProxyState {
             }
             ProxyMode::FullOutbound | ProxyMode::DevBridge => {
                 // SSRF check (always on)
-                let verdict = check_ssrf(host, port).await;
+                let verdict = check_ssrf(host, port, self.allow_loopback).await;
                 if verdict != FilterVerdict::Allow {
                     return verdict;
                 }
@@ -158,7 +192,7 @@ impl ProxyState {
 
         // 3. For api-only, still run SSRF check after allow-list pass
         if self.mode == ProxyMode::ApiOnly {
-            let verdict = check_ssrf(host, port).await;
+            let verdict = check_ssrf(host, port, self.allow_loopback).await;
             if verdict != FilterVerdict::Allow {
                 return verdict;
             }
@@ -186,6 +220,8 @@ impl ProxyState {
             self.stats.bytes_received.fetch_add(b, Ordering::Relaxed);
         }
 
+        let ai_provider = self.providers.lookup(host).is_some();
+
         let record = RequestRecord {
             ts: RequestRecord::now(),
             method: method.to_string(),
@@ -195,6 +231,7 @@ impl ProxyState {
             bytes,
             blocked,
             block_reason: reason,
+            ai_provider,
         };
         if let Err(e) = self.log.write(&record) {
             tracing::warn!("failed to write proxy log entry: {}", e);
@@ -377,14 +414,22 @@ async fn mitm_tunnel(
     let tls_client = acceptor.accept(client_io).await.wrap_err("TLS accept from client")?;
 
     // Build a reusable TLS client config for upstream connections
-    let root_store = rustls::RootCertStore {
-        roots: webpki_roots::TLS_SERVER_ROOTS.to_vec(),
+    let upstream_tls_config = if state.danger_skip_upstream_verify {
+        let cfg = rustls::ClientConfig::builder()
+            .dangerous()
+            .with_custom_certificate_verifier(Arc::new(AcceptAnyCert))
+            .with_no_client_auth();
+        Arc::new(cfg)
+    } else {
+        let root_store = rustls::RootCertStore {
+            roots: webpki_roots::TLS_SERVER_ROOTS.to_vec(),
+        };
+        Arc::new(
+            rustls::ClientConfig::builder()
+                .with_root_certificates(root_store)
+                .with_no_client_auth(),
+        )
     };
-    let upstream_tls_config = Arc::new(
-        rustls::ClientConfig::builder()
-            .with_root_certificates(root_store)
-            .with_no_client_auth(),
-    );
 
     // Serve HTTP/1.1 on the decrypted client stream, forwarding each request upstream
     let host_arc = Arc::new(host);
@@ -419,6 +464,43 @@ async fn forward_inspected(
         .unwrap_or("/")
         .to_string();
     let method = req.method().to_string();
+    let timer = ai_usage::start_timer();
+
+    // Check if this is an AI API host before we consume the request
+    let provider = state.providers.lookup(host);
+
+    // Measure request body size
+    let content_length = req
+        .headers()
+        .get(hyper::header::CONTENT_LENGTH)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| s.parse::<u64>().ok());
+
+    // For AI API hosts, collect the request body to measure its size,
+    // then rebuild the request.
+    let (req, request_bytes) = if provider.is_some() && content_length.is_none() {
+        // No Content-Length header — collect body to measure
+        let (parts, body) = req.into_parts();
+        match body.collect().await {
+            Ok(collected) => {
+                let bytes = collected.to_bytes();
+                let len = bytes.len() as u64;
+                let new_body = Full::new(bytes).map_err(|never| match never {}).boxed();
+                (Request::from_parts(parts, new_body), len)
+            }
+            Err(e) => {
+                tracing::warn!("failed to read request body: {}", e);
+                return Ok(Response::builder()
+                    .status(StatusCode::BAD_GATEWAY)
+                    .body(full_body("502 Bad Gateway"))
+                    .unwrap());
+            }
+        }
+    } else {
+        let rb = content_length.unwrap_or(0);
+        let req = req.map(|b| b.map_err(|e| e).boxed());
+        (req, rb)
+    };
 
     // Connect to upstream over TCP + TLS
     let tcp = match tokio::net::TcpStream::connect(format!("{}:{}", host, port)).await {
@@ -464,8 +546,80 @@ async fn forward_inspected(
     match sender.send_request(req).await {
         Ok(resp) => {
             let status = resp.status().as_u16();
-            state.log_request(&method, host, &path, Some(status), None, false, None);
-            Ok(resp.map(|b| b.map_err(|e| e).boxed()))
+            let latency_ms = ai_usage::elapsed_ms(timer);
+
+            // For AI API hosts: buffer the response body for token extraction,
+            // then re-wrap it for the client.
+            if let (Some(prov), Some(ai_log)) = (provider, state.ai_log.as_ref()) {
+                let is_streaming = resp
+                    .headers()
+                    .get(hyper::header::CONTENT_TYPE)
+                    .and_then(|v| v.to_str().ok())
+                    .map(|ct| ct.contains("text/event-stream"))
+                    .unwrap_or(false);
+
+                let (parts, body) = resp.into_parts();
+
+                match body.collect().await {
+                    Ok(collected) => {
+                        let body_bytes = collected.to_bytes();
+                        let response_bytes = body_bytes.len() as u64;
+
+                        // Extract usage from the response body
+                        let usage = if is_streaming {
+                            // For SSE, find the last `data:` line with content
+                            extract_sse_usage(prov, &body_bytes)
+                        } else {
+                            ai_usage::extract_usage(prov, &body_bytes)
+                        };
+
+                        // Update atomic counters
+                        state.stats.ai_requests.fetch_add(1, Ordering::Relaxed);
+                        if let Some(t) = usage.input_tokens {
+                            state.stats.ai_input_tokens.fetch_add(t, Ordering::Relaxed);
+                        }
+                        if let Some(t) = usage.output_tokens {
+                            state.stats.ai_output_tokens.fetch_add(t, Ordering::Relaxed);
+                        }
+                        if let Some(t) = usage.cache_read_tokens {
+                            state.stats.ai_cache_read_tokens.fetch_add(t, Ordering::Relaxed);
+                        }
+
+                        // Write usage log record
+                        let record = ApiUsageRecord {
+                            ts: log::RequestRecord::now(),
+                            provider: prov,
+                            model: usage.model,
+                            endpoint: path.clone(),
+                            latency_ms,
+                            request_bytes,
+                            response_bytes,
+                            input_tokens: usage.input_tokens,
+                            output_tokens: usage.output_tokens,
+                            cache_read_tokens: usage.cache_read_tokens,
+                            cache_creation_tokens: usage.cache_creation_tokens,
+                            status,
+                            streaming: is_streaming,
+                        };
+                        if let Err(e) = ai_log.write(&record) {
+                            tracing::warn!("failed to write API usage log: {}", e);
+                        }
+
+                        state.log_request(&method, host, &path, Some(status), Some(response_bytes), false, None);
+                        let new_body = Full::new(body_bytes).map_err(|never| match never {}).boxed();
+                        Ok(Response::from_parts(parts, new_body))
+                    }
+                    Err(e) => {
+                        tracing::warn!("failed to read AI API response body: {}", e);
+                        state.log_request(&method, host, &path, Some(status), None, false, None);
+                        Ok(Response::from_parts(parts, empty_body()))
+                    }
+                }
+            } else {
+                // Not an AI API host — pass through without buffering
+                state.log_request(&method, host, &path, Some(status), None, false, None);
+                Ok(resp.map(|b| b.map_err(|e| e).boxed()))
+            }
         }
         Err(e) => {
             tracing::warn!("upstream request failed for {}: {}", host, e);
@@ -475,6 +629,31 @@ async fn forward_inspected(
                 .body(full_body("502 Bad Gateway"))
                 .unwrap())
         }
+    }
+}
+
+/// Extract usage from a buffered SSE response by finding the last meaningful
+/// `data:` line that contains a usage object.
+fn extract_sse_usage(provider: ai_usage::Provider, body: &[u8]) -> ai_usage::ExtractedUsage {
+    let text = String::from_utf8_lossy(body);
+    let mut last_usage_data: Option<&str> = None;
+
+    for line in text.lines() {
+        if let Some(data) = line.strip_prefix("data: ") {
+            if data == "[DONE]" {
+                continue;
+            }
+            // Check if this data line contains a usage field
+            if data.contains("\"usage\"") {
+                last_usage_data = Some(data);
+            }
+        }
+    }
+
+    if let Some(data) = last_usage_data {
+        ai_usage::extract_usage_from_sse(provider, data.as_bytes())
+    } else {
+        ai_usage::ExtractedUsage::default()
     }
 }
 
@@ -570,7 +749,59 @@ async fn handle_forward(
     }
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
+// ── TLS helpers ──────────────────────────────────────────────────────────────
+
+/// Certificate verifier that accepts any cert. Used when
+/// `danger_skip_upstream_verify` is set (testing with self-signed upstreams).
+#[derive(Debug)]
+struct AcceptAnyCert;
+
+impl rustls::client::danger::ServerCertVerifier for AcceptAnyCert {
+    fn verify_server_cert(
+        &self,
+        _end_entity: &rustls::pki_types::CertificateDer<'_>,
+        _intermediates: &[rustls::pki_types::CertificateDer<'_>],
+        _server_name: &rustls::pki_types::ServerName<'_>,
+        _ocsp_response: &[u8],
+        _now: rustls::pki_types::UnixTime,
+    ) -> Result<rustls::client::danger::ServerCertVerified, rustls::Error> {
+        Ok(rustls::client::danger::ServerCertVerified::assertion())
+    }
+
+    fn verify_tls12_signature(
+        &self,
+        _message: &[u8],
+        _cert: &rustls::pki_types::CertificateDer<'_>,
+        _dss: &rustls::DigitallySignedStruct,
+    ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
+        Ok(rustls::client::danger::HandshakeSignatureValid::assertion())
+    }
+
+    fn verify_tls13_signature(
+        &self,
+        _message: &[u8],
+        _cert: &rustls::pki_types::CertificateDer<'_>,
+        _dss: &rustls::DigitallySignedStruct,
+    ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
+        Ok(rustls::client::danger::HandshakeSignatureValid::assertion())
+    }
+
+    fn supported_verify_schemes(&self) -> Vec<rustls::SignatureScheme> {
+        vec![
+            rustls::SignatureScheme::RSA_PKCS1_SHA256,
+            rustls::SignatureScheme::RSA_PKCS1_SHA384,
+            rustls::SignatureScheme::RSA_PKCS1_SHA512,
+            rustls::SignatureScheme::ECDSA_NISTP256_SHA256,
+            rustls::SignatureScheme::ECDSA_NISTP384_SHA384,
+            rustls::SignatureScheme::RSA_PSS_SHA256,
+            rustls::SignatureScheme::RSA_PSS_SHA384,
+            rustls::SignatureScheme::RSA_PSS_SHA512,
+            rustls::SignatureScheme::ED25519,
+        ]
+    }
+}
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
 
 /// Split "host:port" or "host" into (host, port), using `default_port` if absent.
 fn split_host_port(authority: &str, default_port: u16) -> (String, u16) {

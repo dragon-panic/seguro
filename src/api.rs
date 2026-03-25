@@ -26,7 +26,6 @@
 //! ```
 
 use std::path::PathBuf;
-use std::io::IsTerminal;
 use std::process::Stdio;
 use std::sync::Arc;
 use std::time::Duration;
@@ -329,6 +328,14 @@ pub struct SessionUsage {
     pub proxy_blocked: u64,
     /// Estimated response bytes received through the proxy.
     pub proxy_bytes_received: u64,
+    /// AI API requests (subset of total proxy requests).
+    pub ai_requests: u64,
+    /// Total input tokens across all AI API requests.
+    pub ai_input_tokens: u64,
+    /// Total output tokens across all AI API requests.
+    pub ai_output_tokens: u64,
+    /// Total cache-read tokens across all AI API requests.
+    pub ai_cache_read_tokens: u64,
 }
 
 /// A running sandboxed VM session.
@@ -685,10 +692,13 @@ impl Sandbox {
             "-o", "LogLevel=QUIET",
         ]);
         // PTY merges stdout+stderr, so skip it when capturing/streaming.
+        // Always allocate a PTY for non-capturing sessions so that tmux
+        // send-keys can reach the remote process even when the tmux pane
+        // was started detached (stdout().is_terminal() == false).
         if !capturing {
             if interactive {
                 cmd.arg("-tt");
-            } else if std::io::stdout().is_terminal() {
+            } else {
                 cmd.arg("-t");
             }
         }
@@ -905,6 +915,10 @@ impl Sandbox {
             proxy_requests: self.proxy_stats.requests.load(Relaxed),
             proxy_blocked: self.proxy_stats.blocked.load(Relaxed),
             proxy_bytes_received: self.proxy_stats.bytes_received.load(Relaxed),
+            ai_requests: self.proxy_stats.ai_requests.load(Relaxed),
+            ai_input_tokens: self.proxy_stats.ai_input_tokens.load(Relaxed),
+            ai_output_tokens: self.proxy_stats.ai_output_tokens.load(Relaxed),
+            ai_cache_read_tokens: self.proxy_stats.ai_cache_read_tokens.load(Relaxed),
         }
     }
 
@@ -1838,6 +1852,10 @@ system_prompt = "Just a prompt."
             proxy_requests: 142,
             proxy_blocked: 3,
             proxy_bytes_received: 5242880,
+            ai_requests: 10,
+            ai_input_tokens: 15000,
+            ai_output_tokens: 3000,
+            ai_cache_read_tokens: 5000,
         };
         let json = serde_json::to_string(&usage).unwrap();
         assert!(json.contains("\"proxy_requests\":142"));

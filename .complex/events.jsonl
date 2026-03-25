@@ -281,3 +281,4 @@
 {"ts":"2026-03-10T16:46:51.429857493+00:00","action":"integrate","node_id":"0aWW","reason":"env flag implemented"}
 {"ts":"2026-03-10T16:46:51.431299400+00:00","action":"claim","node_id":"ZRAq","part":"claude"}
 {"ts":"2026-03-10T16:46:51.432738898+00:00","action":"integrate","node_id":"ZRAq","reason":"ro flag implemented"}
+{"ts":"2026-03-25T20:47:12.111760246+00:00","action":"create","node_id":"RMcr","detail":"Provider-aware API usage capture in MITM proxy"}

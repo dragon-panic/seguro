@@ -87,6 +87,20 @@ pub struct ProxyConfig {
     /// Hosts always blocked regardless of mode (supplemental deny list).
     #[serde(default)]
     pub deny: DenyConfig,
+
+    /// AI API provider hostname map for token usage capture.
+    /// Keys are provider names ("anthropic", "openai", etc.), values are
+    /// hostname lists. Extends built-in defaults; unknown names map to "custom".
+    #[serde(default)]
+    pub ai_providers: HashMap<String, Vec<String>>,
+
+    /// Allow loopback addresses (127.0.0.0/8) through the SSRF filter.
+    /// Useful for dev-bridge scenarios with localhost services.
+    pub allow_loopback: Option<bool>,
+
+    /// Skip upstream TLS certificate verification during MITM inspection.
+    /// **DANGEROUS** — only for testing with self-signed upstream servers.
+    pub danger_skip_upstream_verify: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -234,6 +248,15 @@ impl Config {
         }
         if !other.proxy.deny.hosts.is_empty() {
             self.proxy.deny.hosts = other.proxy.deny.hosts;
+        }
+        for (name, hosts) in other.proxy.ai_providers {
+            self.proxy.ai_providers.insert(name, hosts);
+        }
+        if let Some(v) = other.proxy.allow_loopback {
+            self.proxy.allow_loopback = Some(v);
+        }
+        if let Some(v) = other.proxy.danger_skip_upstream_verify {
+            self.proxy.danger_skip_upstream_verify = Some(v);
         }
 
         // guest

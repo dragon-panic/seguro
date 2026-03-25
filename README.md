@@ -95,6 +95,7 @@ seguro snapshot restore NAME           Restore a session from a snapshot
 seguro images ls                       List available base images
 seguro images build [--browser]        Build base image(s)
 seguro proxy-log [SESSION_ID]          Tail the proxy request log
+seguro api-usage [SESSION_ID]          View AI API token usage
 ```
 
 ### Network modes (`--net`)
@@ -110,6 +111,30 @@ seguro proxy-log [SESSION_ID]          Tail the proxy request log
 
 Pass `--tls-inspect` to enable full URL logging via MITM proxy. A CA cert is
 generated and injected into the guest automatically.
+
+### AI API usage tracking
+
+When `--tls-inspect` is active, the proxy automatically detects requests to
+known AI API providers (Anthropic, OpenAI, Google, Mistral) and extracts token
+usage from responses. Per-session usage is logged to `api-usage.jsonl` and
+aggregated in `SessionUsage` counters.
+
+```sh
+# View token usage for the current session
+seguro api-usage
+
+# View for a specific session
+seguro api-usage <SESSION_ID>
+```
+
+The default provider map can be extended in config:
+
+```toml
+[proxy.ai_providers]
+custom = ["my-llm-gateway.internal"]
+```
+
+No message content is captured — only metadata (model, token counts, latency).
 
 ## Configuration
 

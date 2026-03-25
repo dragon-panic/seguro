@@ -26,6 +26,7 @@ async fn main() -> Result<()> {
         Commands::Snapshot(args) => commands::snapshot::execute(args).await,
         Commands::Images(args) => commands::images::execute(args).await,
         Commands::ProxyLog(args) => commands::proxy_log::execute(args).await,
+        Commands::ApiUsage(args) => commands::api_usage::execute(args).await,
     }
 }
 

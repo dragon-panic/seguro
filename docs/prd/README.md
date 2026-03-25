@@ -188,6 +188,7 @@ This gives:
 - **Domain allow/deny list** — configured in `seguro.toml`, evaluated in `proxy/filter.rs`
 - **SSRF protection** — RFC 1918 destinations always denied (see below)
 - **TLS visibility** — default: log SNI hostname only (no CA needed in guest). Opt-in `--tls-inspect` generates a CA via `rcgen`, installs it in the guest, and enables full URL + response body logging via `hudsucker`.
+- **AI API usage capture** — when TLS inspection is active, the proxy detects requests to known AI API providers (Anthropic, OpenAI, Google, Mistral) by hostname, extracts token usage from response bodies, and writes per-session `api-usage.jsonl`. See `docs/prd/api-usage-capture.md` for full design.
 
 For `api-only` mode the allow list is configured in `seguro.toml`:
 
@@ -440,12 +441,14 @@ src/
     filter.rs          — SSRF block list, allow/deny list evaluation
     log.rs             — per-session request log writer (JSONL)
     ca.rs              — CA cert generation, per-domain cert signing cache
+    ai_usage.rs        — AI API provider detection, token extraction, usage log
   commands/
     run.rs
     shell.rs
     sessions.rs
     images.rs
     proxy_log.rs
+    api_usage.rs
 ```
 
 ### Configuration
@@ -593,7 +596,7 @@ Six synchronous methods for orchestrator integration (e.g. Ox). These are primit
 `sandbox.kill_agent()` SSHes into the guest and kills all agent-user processes. The VM stays running — overlay, virtiofs, and proxy are untouched. The orchestrator calls `exec()` again to start a new agent. Enables fast restart (~instant) vs full VM restart (3-5s).
 
 **Resource metering:**
-`sandbox.usage()` returns live `SessionUsage` with wall-clock duration, proxy request count, blocked request count, and bytes received. Proxy counters are atomic — readable at any time without coordination.
+`sandbox.usage()` returns live `SessionUsage` with wall-clock duration, proxy request count, blocked request count, bytes received, and AI API token counters (ai_requests, ai_input_tokens, ai_output_tokens, ai_cache_read_tokens). Proxy counters are atomic — readable at any time without coordination. AI token counters are populated only when `--tls-inspect` is active.
 
 **Workspace state inspection:**
 `sandbox.workspace_state()` runs `git` on the host-side workspace path (no SSH) and returns `WorkspaceState` with `is_git_repo`, `has_uncommitted`, `has_unpushed`, and `dirty_files` count. Used for pre-kill verification — the orchestrator can refuse to terminate sessions with unpushed work. `sessions prune` also checks workspace state and skips dirty sessions unless `--force` is passed.
@@ -647,7 +650,8 @@ Usage:
   seguro snapshot restore NAME      # start a session from a named snapshot
   seguro images ls                  # list base images
   seguro images build [--profile NAME] [--browser]   # build base image for a profile
-  seguro proxy log [SESSION_ID]     # tail the proxy request log for a session
+  seguro proxy-log [SESSION_ID]     # tail the proxy request log for a session
+  seguro api-usage [SESSION_ID]    # view AI API token usage for a session
 ```
 
 `--profile NAME`: select a VM profile (defines image, RAM, CPU, env vars). See Configuration below.
