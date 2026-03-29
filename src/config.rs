@@ -326,7 +326,9 @@ impl Config {
                 memory_mb: Some(2048),
                 smp: Some(2),
                 packages: Vec::new(),
-                env: HashMap::new(),
+                env: HashMap::from([
+                    ("RUSTC_WRAPPER".into(), "sccache".into()),
+                ]),
             },
         }
     }
@@ -479,6 +481,7 @@ hosts = ["api.example.com"]
         assert_eq!(p.image_suffix, None);
         assert_eq!(p.memory_mb, Some(2048));
         assert_eq!(p.smp, Some(2));
+        assert_eq!(p.env.get("RUSTC_WRAPPER").unwrap(), "sccache");
     }
 
     #[test]

@@ -46,6 +46,77 @@
       "created_at": "2026-03-25T20:47:12.111407629Z",
       "updated_at": "2026-03-25T20:47:12.111407629Z",
       "filed_by": "ox"
+    },
+    {
+      "id": "VukS",
+      "title": "sessions prune: remove dirs with dead/missing QEMU PIDs",
+      "state": "latent",
+      "shadowed": false,
+      "part": null,
+      "created_at": "2026-03-28T21:29:36.490688159Z",
+      "updated_at": "2026-03-28T21:29:36.490688159Z",
+      "filed_by": "ox"
+    },
+    {
+      "id": "d2GO",
+      "title": "Shared sccache for pool VMs — eliminate cold cargo builds",
+      "state": "integrated",
+      "shadowed": false,
+      "part": "claude",
+      "created_at": "2026-03-28T22:09:42.446716582Z",
+      "updated_at": "2026-03-29T14:13:59.692354983Z",
+      "filed_by": "ox",
+      "meta": {
+        "_reason": "all subtasks complete — sccache in image, RUSTC_WRAPPER in default profile, cargo registry pre-populated, ox issue filed"
+      }
+    },
+    {
+      "id": "d2GO.w3Mb",
+      "title": "Install sccache in base VM image",
+      "state": "integrated",
+      "shadowed": false,
+      "part": "claude",
+      "created_at": "2026-03-29T14:06:53.717348078Z",
+      "updated_at": "2026-03-29T14:10:04.759298986Z",
+      "meta": {
+        "_reason": "sccache v0.12.0 installed via prebuilt musl binary in build-image.sh runcmd"
+      }
+    },
+    {
+      "id": "d2GO.b4b4",
+      "title": "Add RUSTC_WRAPPER + SCCACHE_DIR to default profile env",
+      "state": "integrated",
+      "shadowed": false,
+      "part": "claude",
+      "created_at": "2026-03-29T14:06:53.719333672Z",
+      "updated_at": "2026-03-29T14:10:04.760929304Z",
+      "meta": {
+        "_reason": "RUSTC_WRAPPER=sccache added to default profile env in config.rs"
+      }
+    },
+    {
+      "id": "d2GO.xW88",
+      "title": "Bake cargo registry into base image",
+      "state": "integrated",
+      "shadowed": false,
+      "part": "claude",
+      "created_at": "2026-03-29T14:06:53.720954240Z",
+      "updated_at": "2026-03-29T14:10:04.762618010Z",
+      "meta": {
+        "_reason": "cargo registry index pre-populated via 'cargo search --limit 0' in build-image.sh runcmd"
+      }
+    },
+    {
+      "id": "d2GO.w7pN",
+      "title": "Write ox issue for shared cache mount usage",
+      "state": "integrated",
+      "shadowed": false,
+      "part": "claude",
+      "created_at": "2026-03-29T14:06:53.722647125Z",
+      "updated_at": "2026-03-29T14:13:55.962148318Z",
+      "meta": {
+        "_reason": "ox issue 9QhN created with usage instructions"
+      }
     }
   ],
   "edges": []

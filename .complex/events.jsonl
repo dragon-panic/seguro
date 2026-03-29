@@ -282,3 +282,24 @@
 {"ts":"2026-03-10T16:46:51.431299400+00:00","action":"claim","node_id":"ZRAq","part":"claude"}
 {"ts":"2026-03-10T16:46:51.432738898+00:00","action":"integrate","node_id":"ZRAq","reason":"ro flag implemented"}
 {"ts":"2026-03-25T20:47:12.111760246+00:00","action":"create","node_id":"RMcr","detail":"Provider-aware API usage capture in MITM proxy"}
+{"ts":"2026-03-28T21:29:36.491143632+00:00","action":"create","node_id":"VukS","detail":"sessions prune: remove dirs with dead/missing QEMU PIDs"}
+{"ts":"2026-03-28T22:09:42.447230613+00:00","action":"create","node_id":"d2GO","detail":"Shared sccache for pool VMs — eliminate cold cargo builds"}
+{"ts":"2026-03-29T14:06:48.900692003+00:00","action":"surface","node_id":"d2GO","reason":"approved by user"}
+{"ts":"2026-03-29T14:06:48.903119580+00:00","action":"claim","node_id":"d2GO","part":"claude","reason":"starting implementation"}
+{"ts":"2026-03-29T14:06:53.717833950+00:00","action":"create","node_id":"d2GO.w3Mb","detail":"Install sccache in base VM image"}
+{"ts":"2026-03-29T14:06:53.719618731+00:00","action":"create","node_id":"d2GO.b4b4","detail":"Add RUSTC_WRAPPER + SCCACHE_DIR to default profile env"}
+{"ts":"2026-03-29T14:06:53.721228549+00:00","action":"create","node_id":"d2GO.xW88","detail":"Bake cargo registry into base image"}
+{"ts":"2026-03-29T14:06:53.722956923+00:00","action":"create","node_id":"d2GO.w7pN","detail":"Write ox issue for shared cache mount usage"}
+{"ts":"2026-03-29T14:06:58.080047935+00:00","action":"surface","node_id":"d2GO.w3Mb"}
+{"ts":"2026-03-29T14:06:58.081772659+00:00","action":"surface","node_id":"d2GO.b4b4"}
+{"ts":"2026-03-29T14:06:58.083168935+00:00","action":"surface","node_id":"d2GO.xW88"}
+{"ts":"2026-03-29T14:06:58.084618650+00:00","action":"surface","node_id":"d2GO.w7pN"}
+{"ts":"2026-03-29T14:08:16.217802700+00:00","action":"claim","node_id":"d2GO.w3Mb","part":"claude"}
+{"ts":"2026-03-29T14:08:16.219438417+00:00","action":"claim","node_id":"d2GO.b4b4","part":"claude"}
+{"ts":"2026-03-29T14:08:16.221035897+00:00","action":"claim","node_id":"d2GO.xW88","part":"claude"}
+{"ts":"2026-03-29T14:08:16.222673214+00:00","action":"claim","node_id":"d2GO.w7pN","part":"claude"}
+{"ts":"2026-03-29T14:10:04.759738669+00:00","action":"integrate","node_id":"d2GO.w3Mb","reason":"sccache v0.12.0 installed via prebuilt musl binary in build-image.sh runcmd"}
+{"ts":"2026-03-29T14:10:04.761143866+00:00","action":"integrate","node_id":"d2GO.b4b4","reason":"RUSTC_WRAPPER=sccache added to default profile env in config.rs"}
+{"ts":"2026-03-29T14:10:04.762969887+00:00","action":"integrate","node_id":"d2GO.xW88","reason":"cargo registry index pre-populated via 'cargo search --limit 0' in build-image.sh runcmd"}
+{"ts":"2026-03-29T14:13:55.962595811+00:00","action":"integrate","node_id":"d2GO.w7pN","reason":"ox issue 9QhN created with usage instructions"}
+{"ts":"2026-03-29T14:13:59.692637843+00:00","action":"integrate","node_id":"d2GO","reason":"all subtasks complete — sccache in image, RUSTC_WRAPPER in default profile, cargo registry pre-populated, ox issue filed"}
