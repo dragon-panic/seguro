@@ -996,7 +996,11 @@ impl Sandbox {
 
         // Check if QEMU is still running, otherwise re-launch
         let pid_file = runtime_dir.join("qemu.pid");
-        let qemu = if crate::session::image::is_qemu_running(&pid_file) {
+        let existing_pid_alive = std::fs::read_to_string(&pid_file)
+            .ok()
+            .and_then(|s| s.trim().parse::<i32>().ok())
+            .is_some_and(crate::session::image::is_qemu_pid_alive);
+        let qemu = if existing_pid_alive {
             tracing::info!("existing QEMU process found, re-launching for ownership");
             if let Ok(content) = std::fs::read_to_string(&pid_file) {
                 if let Ok(pid) = content.trim().parse::<i32>() {

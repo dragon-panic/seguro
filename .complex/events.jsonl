@@ -303,3 +303,12 @@
 {"ts":"2026-03-29T14:10:04.762969887+00:00","action":"integrate","node_id":"d2GO.xW88","reason":"cargo registry index pre-populated via 'cargo search --limit 0' in build-image.sh runcmd"}
 {"ts":"2026-03-29T14:13:55.962595811+00:00","action":"integrate","node_id":"d2GO.w7pN","reason":"ox issue 9QhN created with usage instructions"}
 {"ts":"2026-03-29T14:13:59.692637843+00:00","action":"integrate","node_id":"d2GO","reason":"all subtasks complete — sccache in image, RUSTC_WRAPPER in default profile, cargo registry pre-populated, ox issue filed"}
+{"ts":"2026-03-29T20:09:49.645198363+00:00","action":"create","node_id":"JmeV","detail":"sessions prune misses stale /run dirs — tmpfs fills up, blocks VM launches"}
+{"ts":"2026-03-30T11:10:26.514156822+00:00","action":"surface","node_id":"VukS"}
+{"ts":"2026-03-30T11:10:26.516202994+00:00","action":"surface","node_id":"JmeV"}
+{"ts":"2026-03-30T11:10:32.718357845+00:00","action":"claim","node_id":"VukS","part":"claude","reason":"implementing prune fix + signal handling"}
+{"ts":"2026-03-30T11:10:32.720293012+00:00","action":"claim","node_id":"JmeV","part":"claude","reason":"implementing alongside VukS"}
+{"ts":"2026-03-30T11:11:16.906080670+00:00","action":"edit","node_id":"VukS"}
+{"ts":"2026-03-30T11:11:16.907594119+00:00","action":"edit","node_id":"JmeV"}
+{"ts":"2026-03-30T11:17:33.155038176+00:00","action":"integrate","node_id":"VukS","reason":"signal handling in run.rs + robust cleanup on all exit paths"}
+{"ts":"2026-03-30T11:17:33.156769724+00:00","action":"integrate","node_id":"JmeV","reason":"prune now classifies sessions as dead/zombie/alive, kills zombie QEMU processes"}

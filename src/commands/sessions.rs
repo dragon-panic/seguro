@@ -2,7 +2,7 @@ use color_eyre::eyre::Result;
 
 use crate::cli::{SessionsArgs, SessionsCommand};
 use crate::config::runtime_dir;
-use crate::session::image::list_orphaned_overlays;
+use crate::session::image::{SessionState, classify_sessions, is_qemu_pid_alive, kill_qemu_pid};
 
 pub async fn execute(args: SessionsArgs) -> Result<()> {
     match args.command {
@@ -50,45 +50,81 @@ fn list() -> Result<()> {
 
 fn prune(force: bool) -> Result<()> {
     let run_dir = runtime_dir();
-    let orphans = list_orphaned_overlays(&run_dir)?;
+    let ssh_timeout = std::time::Duration::from_secs(3);
+    let sessions = classify_sessions(&run_dir, ssh_timeout)?;
 
-    if orphans.is_empty() {
+    if sessions.is_empty() {
         println!("Nothing to prune.");
         return Ok(());
     }
 
-    let mut pruned = 0;
-    let mut skipped = 0;
+    let mut pruned = 0u32;
+    let mut killed = 0u32;
+    let mut skipped = 0u32;
 
-    for orphan_dir in &orphans {
-        // Try to read workspace path from session.json to check git state
-        if !force {
-            if let Some(workspace) = read_session_workspace(orphan_dir) {
+    for session in &sessions {
+        match session.state {
+            SessionState::Alive if !force => {
+                // Live session — skip unless --force
+                continue;
+            }
+            SessionState::Alive => {
+                // --force: kill live session
+            }
+            SessionState::Dead => {
+                // QEMU already gone — just clean the dir
+            }
+            SessionState::Zombie => {
+                // QEMU alive but guest unreachable — always clean
+            }
+        }
+
+        // Git-dirty check for dead sessions (skip with --force)
+        if !force && session.state == SessionState::Dead {
+            if let Some(workspace) = read_session_workspace(&session.dir) {
                 match crate::api::check_workspace_git_state(&workspace) {
                     Ok(state) if state.has_uncommitted || state.has_unpushed => {
                         eprintln!(
                             "Skipping {} — workspace {} has {} (use --force to override)",
-                            orphan_dir.display(),
+                            session.dir.display(),
                             workspace.display(),
                             if state.has_unpushed { "unpushed commits" } else { "uncommitted changes" },
                         );
                         skipped += 1;
                         continue;
                     }
-                    _ => {} // clean, not a git repo, or git not available — safe to prune
+                    _ => {}
                 }
             }
         }
 
-        println!("Removing orphaned session: {}", orphan_dir.display());
-        if let Err(e) = std::fs::remove_dir_all(orphan_dir) {
-            eprintln!("  warning: failed to remove {}: {}", orphan_dir.display(), e);
+        // Kill QEMU if still running
+        if let Some(pid) = session.pid {
+            if is_qemu_pid_alive(pid) {
+                let label = session.dir.file_name()
+                    .map(|n| n.to_string_lossy().to_string())
+                    .unwrap_or_else(|| session.dir.display().to_string());
+                eprintln!("Killing QEMU (pid {}) for session {}", pid, label);
+                kill_qemu_pid(pid);
+                killed += 1;
+            }
         }
-        pruned += 1;
+
+        // Remove session directory
+        if let Err(e) = std::fs::remove_dir_all(&session.dir) {
+            eprintln!("  warning: failed to remove {}: {}", session.dir.display(), e);
+        } else {
+            pruned += 1;
+        }
     }
 
-    if pruned > 0 {
-        println!("Pruned {} orphaned session(s).", pruned);
+    if pruned == 0 && killed == 0 {
+        println!("Nothing to prune.");
+    } else {
+        if killed > 0 {
+            println!("Killed {} QEMU process(es).", killed);
+        }
+        println!("Pruned {} session(s).", pruned);
     }
     if skipped > 0 {
         println!("Skipped {} session(s) with dirty workspaces.", skipped);

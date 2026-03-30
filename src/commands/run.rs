@@ -2,7 +2,6 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use color_eyre::eyre::{Result, eyre};
-use tokio::signal;
 
 use crate::api::{Mount, Sandbox, SandboxConfig};
 use crate::cli::{NetMode, RunArgs};
@@ -74,21 +73,32 @@ pub async fn execute(args: RunArgs) -> Result<()> {
         eprintln!("Guest is ready.");
     }
 
-    // ── Execute agent command (or interactive shell) ───────────────────────
-    let result = sandbox.exec(&args.agent).await?;
+    // ── Register signal handlers ─────────────────────────────────────────────
+    use tokio::signal::unix::{signal, SignalKind};
+    let mut sigterm = signal(SignalKind::terminate())
+        .expect("failed to register SIGTERM handler");
+    let mut sighup = signal(SignalKind::hangup())
+        .expect("failed to register SIGHUP handler");
 
-    // ── Graceful shutdown ─────────────────────────────────────────────────
-    tokio::select! {
-        _ = signal::ctrl_c() => {
-            tracing::info!("Ctrl+C received, shutting down");
+    // ── Execute agent command, racing against signals ────────────────────────
+    let result = tokio::select! {
+        r = sandbox.exec(&args.agent) => r,
+        _ = sigterm.recv() => {
+            tracing::info!("SIGTERM received, shutting down");
+            Err(eyre!("terminated by signal"))
         }
-        _ = async { } => {}
+        _ = sighup.recv() => {
+            tracing::info!("SIGHUP received, shutting down");
+            Err(eyre!("terminated by signal"))
+        }
+    };
+
+    // ── Always kill the sandbox — regardless of how exec ended ───────────────
+    if let Err(e) = sandbox.kill().await {
+        tracing::warn!("sandbox cleanup error: {e:#}");
     }
 
-    let persistent = args.persistent;
-    sandbox.kill().await?;
-
-    // Restore terminal state
+    // ── Restore terminal state ───────────────────────────────────────────────
     if let Some(termios) = saved_termios {
         let _ = nix::sys::termios::tcsetattr(
             std::io::stdin().as_fd(),
@@ -98,6 +108,7 @@ pub async fn execute(args: RunArgs) -> Result<()> {
     }
 
     // Clean up temp workspace if we created one
+    let persistent = args.persistent;
     if !persistent {
         if let Some(tmp) = temp_workspace {
             let _ = std::fs::remove_dir_all(&tmp);
@@ -106,6 +117,8 @@ pub async fn execute(args: RunArgs) -> Result<()> {
         eprintln!("Session {} kept (--persistent).", session_id);
     }
 
+    // ── Report exit status ────────────────────────────────────────────────────
+    let result = result?;
     if result.timed_out {
         return Err(eyre!("session timed out after {}s", result.duration.as_secs()));
     }

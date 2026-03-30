@@ -1,24 +1,18 @@
-## `seguro sessions prune` doesn't remove dirs with dead QEMU PIDs
+## Fix 1: Robust cleanup in `seguro run`
 
 ### Problem
+`seguro run` has no signal handling and no `Drop` on `Sandbox`. When the parent
+process kills `seguro run` (SIGTERM/SIGHUP), cleanup never runs, leaving QEMU
+orphaned. The `?` on `exec()` also skips cleanup on SSH errors.
 
-After many Ox bootstrap cycles, `/run/user/1000/seguro/` accumulates hundreds
-of stale session directories. Each has a `qemu.pid` file pointing at a
-long-dead process, but `seguro sessions prune --force` reports "Nothing to prune."
+### Approach
+1. Register SIGTERM + SIGHUP handlers via `tokio::signal::unix`
+2. Use `tokio::select!` to race exec against signals — whichever fires first,
+   always call `sandbox.kill()`
+3. Replace `sandbox.kill().await?` with logging — don't let kill errors skip
+   post-kill cleanup (terminal restore, temp workspace removal)
 
-Observed: 462 dirs on disk, only 2 with running QEMU processes. Prune removes 0.
-
-### Expected behavior
-
-`prune` should remove any session directory where:
-- `qemu.pid` doesn't exist, OR
-- `qemu.pid` points to a process that isn't running (`kill -0` fails)
-
-### Reproduction
-
-```
-# After running Ox bootstrap stop/start a few times:
-ls /run/user/1000/seguro/ | wc -l   # → 462
-seguro sessions ls                    # → 2 live sessions
-seguro sessions prune --force         # → "Nothing to prune."
-```
+### Acceptance
+- `seguro run -- bash -c 'echo done'` exits cleanly, no lingering QEMU
+- Sending SIGTERM to `seguro run` kills QEMU and removes session dir
+- SSH errors during exec don't leak QEMU
