@@ -312,3 +312,12 @@
 {"ts":"2026-03-30T11:11:16.907594119+00:00","action":"edit","node_id":"JmeV"}
 {"ts":"2026-03-30T11:17:33.155038176+00:00","action":"integrate","node_id":"VukS","reason":"signal handling in run.rs + robust cleanup on all exit paths"}
 {"ts":"2026-03-30T11:17:33.156769724+00:00","action":"integrate","node_id":"JmeV","reason":"prune now classifies sessions as dead/zombie/alive, kills zombie QEMU processes"}
+{"ts":"2026-03-30T16:13:57.365976632+00:00","action":"create","node_id":"49uv","detail":"fix: cloud-init restarts sshd mid-session, killing SSH connections"}
+{"ts":"2026-03-30T16:21:19.514397030+00:00","action":"edit","node_id":"49uv"}
+{"ts":"2026-03-30T16:21:23.792784907+00:00","action":"surface","node_id":"49uv"}
+{"ts":"2026-03-30T16:21:23.795427112+00:00","action":"claim","node_id":"49uv","part":"claude"}
+{"ts":"2026-03-30T20:40:44.820016972+00:00","action":"rename","node_id":"49uv","detail":"strip credential injection — seguro is a dumb VM runtime"}
+{"ts":"2026-03-30T20:41:16.440776985+00:00","action":"edit","node_id":"49uv"}
+{"ts":"2026-03-30T20:43:55.318376723+00:00","action":"edit","node_id":"49uv"}
+{"ts":"2026-03-30T20:45:42.355818615+00:00","action":"edit","node_id":"49uv"}
+{"ts":"2026-03-30T23:25:03.509257522+00:00","action":"integrate","node_id":"49uv","reason":"credential injection, persona, AI usage tracking stripped; QEMU stdin detached"}

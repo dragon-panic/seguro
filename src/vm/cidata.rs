@@ -92,3 +92,20 @@ fn build_user_data(pubkey: &str, ca_cert_pem: Option<&str>) -> String {
 
     s
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn user_data_contains_pubkey() {
+        let ud = build_user_data("ssh-ed25519 AAAA testkey", None);
+        assert!(ud.contains("ssh-ed25519 AAAA testkey"));
+    }
+
+    #[test]
+    fn user_data_with_tls_includes_runcmd() {
+        let ud = build_user_data("ssh-ed25519 AAAA testkey", Some("-----BEGIN CERT-----\nfoo\n-----END CERT-----"));
+        assert!(ud.contains("update-ca-certificates"));
+    }
+}

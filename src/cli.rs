@@ -23,9 +23,6 @@ pub enum Commands {
     /// View proxy request logs
     #[command(name = "proxy-log")]
     ProxyLog(ProxyLogArgs),
-    /// View AI API token usage for a session
-    #[command(name = "api-usage")]
-    ApiUsage(ApiUsageArgs),
 }
 
 #[derive(Args)]
@@ -184,11 +181,5 @@ pub struct ImagesBuildArgs {
 #[derive(Args)]
 pub struct ProxyLogArgs {
     /// Session ID whose log to tail (uses most recent session if omitted)
-    pub session_id: Option<String>,
-}
-
-#[derive(Args)]
-pub struct ApiUsageArgs {
-    /// Session ID whose API usage to show (uses most recent session if omitted)
     pub session_id: Option<String>,
 }

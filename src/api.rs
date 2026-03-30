@@ -11,7 +11,7 @@
 //!         guest: "~/workspace".into(),
 //!         readonly: false,
 //!     }],
-//!     env_vars: vec![("ANTHROPIC_API_KEY".into(), "sk-...".into())],
+//!     env_vars: vec![("MY_VAR".into(), "my-value".into())],
 //!     stdout: OutputMode::Capture,
 //!     stderr: OutputMode::Capture,
 //!     ..Default::default()
@@ -128,23 +128,6 @@ pub enum SessionEvent {
     Completed { session_id: String, exit_code: Option<i32>, duration: Duration },
 }
 
-/// Persona configuration loaded from a TOML file.
-///
-/// Defines the identity and constraints for an agent running in the sandbox.
-/// Ox passes this to configure each agent's behavior.
-#[derive(Debug, Clone, serde::Deserialize)]
-pub struct PersonaConfig {
-    /// System prompt written to `workspace/.claude/CLAUDE.md`.
-    #[serde(default)]
-    pub system_prompt: Option<String>,
-    /// Role label (informational — included as env var `SEGURO_ROLE`).
-    #[serde(default)]
-    pub role: Option<String>,
-    /// Environment variables injected into the guest.
-    #[serde(default)]
-    pub env: std::collections::HashMap<String, String>,
-}
-
 use crate::cli::NetMode;
 use crate::config::Config;
 use crate::proxy::{ProxyServer, ProxyStats};
@@ -233,10 +216,6 @@ pub struct SandboxConfig {
     pub stderr: OutputMode,
     /// Restart policy for QEMU crashes. Default: never restart.
     pub restart_policy: RestartPolicy,
-    /// Path to a persona TOML file on the host. When set, the system prompt
-    /// is written to `workspace/.claude/CLAUDE.md` and persona env vars are
-    /// merged into the guest environment.
-    pub persona_config: Option<PathBuf>,
     /// Health check interval. When set, a background task pings SSH at this
     /// interval and updates the health state. None disables health checks.
     pub health_check_interval: Option<Duration>,
@@ -261,7 +240,6 @@ impl Default for SandboxConfig {
             stdout: OutputMode::Inherit,
             stderr: OutputMode::Inherit,
             restart_policy: RestartPolicy::default(),
-            persona_config: None,
             health_check_interval: None,
             shutdown_grace: Some(Duration::from_secs(5)),
         }
@@ -328,14 +306,6 @@ pub struct SessionUsage {
     pub proxy_blocked: u64,
     /// Estimated response bytes received through the proxy.
     pub proxy_bytes_received: u64,
-    /// AI API requests (subset of total proxy requests).
-    pub ai_requests: u64,
-    /// Total input tokens across all AI API requests.
-    pub ai_input_tokens: u64,
-    /// Total output tokens across all AI API requests.
-    pub ai_output_tokens: u64,
-    /// Total cache-read tokens across all AI API requests.
-    pub ai_cache_read_tokens: u64,
 }
 
 /// A running sandboxed VM session.
@@ -446,29 +416,6 @@ impl Sandbox {
             proxy.ca_cert_pem(),
             &cidata_path,
         )?;
-
-        // Load and apply persona config if provided
-        let persona = if let Some(ref persona_path) = config.persona_config {
-            let persona = load_persona(persona_path)?;
-            // Merge persona env vars (profile env < persona env < explicit env_vars)
-            // Insert persona env before the explicit overrides
-            for (k, v) in &persona.env {
-                if !env_vars.iter().any(|(ek, _)| ek == k) {
-                    env_vars.push((k.clone(), v.clone()));
-                }
-            }
-            if let Some(ref role) = persona.role {
-                if !env_vars.iter().any(|(k, _)| k == "SEGURO_ROLE") {
-                    env_vars.push(("SEGURO_ROLE".into(), role.clone()));
-                }
-            }
-            Some(persona)
-        } else {
-            None
-        };
-
-        // Inject env vars into primary workspace
-        inject_workspace_config(&workspace, &env_vars, persona.as_ref())?;
 
         // Start one virtiofsd per mount
         let mut virtiofsd_procs = Vec::with_capacity(mounts.len());
@@ -637,18 +584,8 @@ impl Sandbox {
             ));
         }
 
-        // Source env from the primary mount's guest path
+        // cd to the primary mount's guest path
         let primary_guest = &self.mounts[0].guest;
-        parts.push(format!(
-            " if [ -f {primary_guest}/.seguro/environment ]; then \
-             set -a; . {primary_guest}/.seguro/environment; set +a; fi;"
-        ));
-        parts.push(format!(
-            " if [ -f {primary_guest}/.seguro/.credentials.json ]; then \
-             mkdir -p ~/.claude && \
-             cp {primary_guest}/.seguro/.credentials.json ~/.claude/.credentials.json && \
-             rm {primary_guest}/.seguro/.credentials.json; fi;"
-        ));
         parts.push(format!(" cd {primary_guest} 2>/dev/null || true;"));
 
         parts.join(" ")
@@ -717,7 +654,6 @@ impl Sandbox {
             OutputMode::Capture | OutputMode::Stream(_) => { cmd.stderr(Stdio::piped()); }
         }
 
-        // Mount all virtiofs shares, source env vars, inject credentials
         let preamble = self.build_mount_preamble();
         cmd.arg(&preamble);
 
@@ -915,10 +851,6 @@ impl Sandbox {
             proxy_requests: self.proxy_stats.requests.load(Relaxed),
             proxy_blocked: self.proxy_stats.blocked.load(Relaxed),
             proxy_bytes_received: self.proxy_stats.bytes_received.load(Relaxed),
-            ai_requests: self.proxy_stats.ai_requests.load(Relaxed),
-            ai_input_tokens: self.proxy_stats.ai_input_tokens.load(Relaxed),
-            ai_output_tokens: self.proxy_stats.ai_output_tokens.load(Relaxed),
-            ai_cache_read_tokens: self.proxy_stats.ai_cache_read_tokens.load(Relaxed),
         }
     }
 
@@ -956,9 +888,6 @@ impl Sandbox {
         let net = str_to_net_mode(&meta.net)?;
         let file_config = Config::load(Some(&meta.workspace))?;
         let ssh_timeout = Duration::from_secs(file_config.ssh_timeout() as u64);
-
-        // Re-inject workspace config (env vars, credentials)
-        inject_workspace_config(&meta.workspace, &meta.env_vars, None)?;
 
         // Resolve mounts — backwards compat: old session.json has empty mounts
         let mounts = if meta.mounts.is_empty() {
@@ -1452,55 +1381,6 @@ async fn spawn_stderr_reader(
     }
 }
 
-/// Load persona config from a TOML file.
-fn load_persona(path: &std::path::Path) -> Result<PersonaConfig> {
-    let content = std::fs::read_to_string(path)
-        .wrap_err_with(|| format!("reading persona config: {}", path.display()))?;
-    toml::from_str(&content)
-        .wrap_err_with(|| format!("parsing persona TOML: {}", path.display()))
-}
-
-/// Write env vars, credentials, and persona to `workspace/.seguro/` so the guest can read them via virtiofs.
-fn inject_workspace_config(
-    workspace: &std::path::Path,
-    env_vars: &[(String, String)],
-    persona: Option<&PersonaConfig>,
-) -> Result<()> {
-    let dir = workspace.join(".seguro");
-    std::fs::create_dir_all(&dir).wrap_err("creating .seguro dir in workspace")?;
-
-    if !env_vars.is_empty() {
-        let content: String = env_vars
-            .iter()
-            .map(|(k, v)| format!("{}={}\n", k, v))
-            .collect();
-        std::fs::write(dir.join("environment"), content)
-            .wrap_err("writing env vars to workspace")?;
-    }
-
-    // Inject Claude Code credentials if available on the host.
-    // The guest preamble moves this to ~/.claude/ and deletes it from the workspace.
-    if let Some(home) = dirs::home_dir() {
-        let creds = home.join(".claude/.credentials.json");
-        if creds.exists() {
-            std::fs::copy(&creds, dir.join(".credentials.json"))
-                .wrap_err("copying Claude credentials to workspace")?;
-        }
-    }
-
-    // Inject persona system prompt as CLAUDE.md so Claude Code picks it up.
-    if let Some(persona) = persona {
-        if let Some(ref prompt) = persona.system_prompt {
-            let claude_dir = workspace.join(".claude");
-            std::fs::create_dir_all(&claude_dir)
-                .wrap_err("creating .claude dir in workspace")?;
-            std::fs::write(claude_dir.join("CLAUDE.md"), prompt)
-                .wrap_err("writing persona system prompt to CLAUDE.md")?;
-        }
-    }
-
-    Ok(())
-}
 
 /// Build the shell preamble that sets up iptables rules and proxy env vars.
 fn iptables_preamble(net: &NetMode) -> String {
@@ -1624,63 +1504,6 @@ pub fn check_workspace_git_state(workspace: &std::path::Path) -> Result<Workspac
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn parse_persona_toml() {
-        let toml = r#"
-system_prompt = "You are a code reviewer. Be thorough."
-role = "reviewer"
-
-[env]
-AGENT_ROLE = "reviewer"
-MAX_FILES = "10"
-"#;
-        let persona: PersonaConfig = toml::from_str(toml).unwrap();
-        assert_eq!(
-            persona.system_prompt.as_deref(),
-            Some("You are a code reviewer. Be thorough.")
-        );
-        assert_eq!(persona.role.as_deref(), Some("reviewer"));
-        assert_eq!(persona.env.get("AGENT_ROLE").unwrap(), "reviewer");
-        assert_eq!(persona.env.get("MAX_FILES").unwrap(), "10");
-    }
-
-    #[test]
-    fn parse_minimal_persona_toml() {
-        let toml = r#"
-system_prompt = "Just a prompt."
-"#;
-        let persona: PersonaConfig = toml::from_str(toml).unwrap();
-        assert_eq!(persona.system_prompt.as_deref(), Some("Just a prompt."));
-        assert!(persona.role.is_none());
-        assert!(persona.env.is_empty());
-    }
-
-    #[test]
-    fn inject_persona_writes_claude_md() {
-        let tmp = tempfile::tempdir().unwrap();
-        let persona = PersonaConfig {
-            system_prompt: Some("You are a security auditor.".into()),
-            role: Some("auditor".into()),
-            env: std::collections::HashMap::new(),
-        };
-
-        inject_workspace_config(tmp.path(), &[], Some(&persona)).unwrap();
-
-        let claude_md = tmp.path().join(".claude/CLAUDE.md");
-        assert!(claude_md.exists());
-        let content = std::fs::read_to_string(&claude_md).unwrap();
-        assert_eq!(content, "You are a security auditor.");
-    }
-
-    #[test]
-    fn inject_no_persona_skips_claude_md() {
-        let tmp = tempfile::tempdir().unwrap();
-        inject_workspace_config(tmp.path(), &[], None).unwrap();
-
-        let claude_md = tmp.path().join(".claude/CLAUDE.md");
-        assert!(!claude_md.exists());
-    }
 
     #[test]
     fn restart_policy_default_is_never() {
@@ -1856,10 +1679,6 @@ system_prompt = "Just a prompt."
             proxy_requests: 142,
             proxy_blocked: 3,
             proxy_bytes_received: 5242880,
-            ai_requests: 10,
-            ai_input_tokens: 15000,
-            ai_output_tokens: 3000,
-            ai_cache_read_tokens: 5000,
         };
         let json = serde_json::to_string(&usage).unwrap();
         assert!(json.contains("\"proxy_requests\":142"));

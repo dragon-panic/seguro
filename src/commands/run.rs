@@ -20,17 +20,8 @@ pub async fn execute(args: RunArgs) -> Result<()> {
     // ── Parse mounts ──────────────────────────────────────────────────────────
     let (mounts, temp_workspace) = resolve_mounts(&args.share, verbose)?;
 
-    // ── Build env vars (pass through from host + explicit --env) ─────────────
-    let mut env_vars: Vec<(String, String)> = [
-        "ANTHROPIC_API_KEY",
-        "OPENAI_API_KEY",
-        "GITHUB_TOKEN",
-    ]
-    .iter()
-    .filter_map(|k| std::env::var(k).ok().map(|v| (k.to_string(), v)))
-    .collect();
-
-    // Merge explicit --env KEY=VALUE (these override passthrough)
+    // ── Build env vars from explicit --env KEY=VALUE ──────────────────────────
+    let mut env_vars: Vec<(String, String)> = Vec::new();
     for spec in &args.extra_env {
         let (k, v) = spec.split_once('=')
             .ok_or_else(|| eyre!("--env must be KEY=VALUE, got: {spec}"))?;

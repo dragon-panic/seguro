@@ -135,7 +135,8 @@ pub async fn start_qemu(params: &QemuParams<'_>) -> Result<QemuProcess> {
         cmd.arg(arg);
     }
 
-    // Console
+    // Detach QEMU's stdin so its monitor doesn't compete with the terminal.
+    cmd.stdin(std::process::Stdio::null());
     if params.silent {
         cmd.args(["-display", "none", "-serial", "null"]);
     } else {

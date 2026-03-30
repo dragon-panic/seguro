@@ -17,9 +17,6 @@ pub struct RequestRecord {
     pub blocked: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub block_reason: Option<String>,
-    /// True if this host is a recognised AI API provider.
-    #[serde(skip_serializing_if = "std::ops::Not::not")]
-    pub ai_provider: bool,
 }
 
 impl RequestRecord {
@@ -118,7 +115,6 @@ mod tests {
             bytes: None,
             blocked: false,
             block_reason: None,
-            ai_provider: true,
         };
         let json = serde_json::to_string(&r).unwrap();
         assert!(json.contains("api.anthropic.com"));
