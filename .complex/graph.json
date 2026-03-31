@@ -145,7 +145,116 @@
       "meta": {
         "_reason": "credential injection, persona, AI usage tracking stripped; QEMU stdin detached"
       }
+    },
+    {
+      "id": "EEWb",
+      "title": "Prune safety: don't kill live VMs, don't let dead ones fill tmpfs",
+      "state": "integrated",
+      "shadowed": false,
+      "part": "claude",
+      "created_at": "2026-03-31T03:03:55.699685343Z",
+      "updated_at": "2026-03-31T03:12:53.500457402Z",
+      "filed_by": "ox:god",
+      "tags": [
+        "bug"
+      ],
+      "meta": {
+        "_reason": "all subtasks done: SIGINT handler, seguro.pid tracking, safe prune logic, min-age, tests"
+      }
+    },
+    {
+      "id": "EEWb.cndZ",
+      "title": "Write seguro.pid to session dir on startup",
+      "state": "integrated",
+      "shadowed": false,
+      "part": "claude",
+      "created_at": "2026-03-31T03:09:33.987900769Z",
+      "updated_at": "2026-03-31T03:11:00.135963597Z",
+      "meta": {
+        "_reason": "seguro.pid + ssh.port + workspace.path written to session dir"
+      }
+    },
+    {
+      "id": "EEWb.qBvh",
+      "title": "Add SIGINT to signal handlers in run.rs",
+      "state": "integrated",
+      "shadowed": false,
+      "part": "claude",
+      "created_at": "2026-03-31T03:09:33.990118846Z",
+      "updated_at": "2026-03-31T03:11:00.137972982Z",
+      "meta": {
+        "_reason": "SIGINT handler added"
+      }
+    },
+    {
+      "id": "EEWb.3e7H",
+      "title": "Add orphaned classification to session/image.rs",
+      "state": "integrated",
+      "shadowed": false,
+      "part": "claude",
+      "created_at": "2026-03-31T03:09:33.992206737Z",
+      "updated_at": "2026-03-31T03:11:39.636164771Z",
+      "meta": {
+        "_reason": "orphaned field + is_seguro_pid_dead + dir_created_time added to classification"
+      }
+    },
+    {
+      "id": "EEWb.fHa0",
+      "title": "Update prune logic: skip managed zombies, reap orphans",
+      "state": "integrated",
+      "shadowed": false,
+      "part": "claude",
+      "created_at": "2026-03-31T03:09:33.994161353Z",
+      "updated_at": "2026-03-31T03:12:09.237593829Z",
+      "meta": {
+        "_reason": "prune logic rewritten: skip managed zombies, reap orphans, min-age filter"
+      }
+    },
+    {
+      "id": "EEWb.QqLG",
+      "title": "Add --min-age flag to prune",
+      "state": "integrated",
+      "shadowed": false,
+      "part": "claude",
+      "created_at": "2026-03-31T03:09:33.995985645Z",
+      "updated_at": "2026-03-31T03:11:00.139635749Z",
+      "meta": {
+        "_reason": "min-age flag added to prune CLI"
+      }
+    },
+    {
+      "id": "EEWb.s6uQ",
+      "title": "Tests for new prune/classification logic",
+      "state": "integrated",
+      "shadowed": false,
+      "part": "claude",
+      "created_at": "2026-03-31T03:09:33.997837585Z",
+      "updated_at": "2026-03-31T03:12:49.650220813Z",
+      "meta": {
+        "_reason": "4 new tests: orphaned detection (no file, dead pid, live pid) + created timestamp"
+      }
     }
   ],
-  "edges": []
+  "edges": [
+    {
+      "from": "EEWb.cndZ",
+      "to": "EEWb.3e7H",
+      "type": "blocks"
+    },
+    {
+      "from": "EEWb.3e7H",
+      "to": "EEWb.fHa0",
+      "type": "blocks"
+    },
+    {
+      "from": "EEWb.fHa0",
+      "to": "EEWb.s6uQ",
+      "type": "blocks"
+    },
+    {
+      "from": "EEWb.3e7H",
+      "to": "EEWb.s6uQ",
+      "type": "blocks"
+    }
+  ]
 }

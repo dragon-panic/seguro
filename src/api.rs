@@ -478,6 +478,25 @@ impl Sandbox {
         std::fs::write(session.runtime_dir.join("session.json"), meta_json)
             .wrap_err("writing session.json")?;
 
+        // Write managing process PID so prune can detect orphaned sessions
+        std::fs::write(
+            session.runtime_dir.join("seguro.pid"),
+            std::process::id().to_string(),
+        )
+        .wrap_err("writing seguro.pid")?;
+
+        // Write ssh.port and workspace.path for classify_sessions / sessions ls
+        std::fs::write(
+            session.runtime_dir.join("ssh.port"),
+            session.ssh_port.to_string(),
+        )
+        .wrap_err("writing ssh.port")?;
+        std::fs::write(
+            session.runtime_dir.join("workspace.path"),
+            workspace.to_string_lossy().as_ref(),
+        )
+        .wrap_err("writing workspace.path")?;
+
         // Wait for SSH
         let ssh_timeout = Duration::from_secs(file_config.ssh_timeout() as u64);
         vm::wait_for_ssh(session.ssh_port, ssh_timeout).await?;

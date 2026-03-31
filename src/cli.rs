@@ -136,6 +136,10 @@ pub enum SessionsCommand {
         /// Skip workspace git-state check and prune even if dirty
         #[arg(long)]
         force: bool,
+
+        /// Skip sessions younger than this many seconds (default: 30)
+        #[arg(long, default_value = "30")]
+        min_age: u64,
     },
 }
 

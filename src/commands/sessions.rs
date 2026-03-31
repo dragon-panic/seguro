@@ -7,7 +7,7 @@ use crate::session::image::{SessionState, classify_sessions, is_qemu_pid_alive, 
 pub async fn execute(args: SessionsArgs) -> Result<()> {
     match args.command {
         SessionsCommand::Ls => list(),
-        SessionsCommand::Prune { force } => prune(force),
+        SessionsCommand::Prune { force, min_age } => prune(force, min_age),
     }
 }
 
@@ -48,9 +48,11 @@ fn list() -> Result<()> {
     Ok(())
 }
 
-fn prune(force: bool) -> Result<()> {
+fn prune(force: bool, min_age_secs: u64) -> Result<()> {
     let run_dir = runtime_dir();
     let ssh_timeout = std::time::Duration::from_secs(3);
+    let min_age = std::time::Duration::from_secs(min_age_secs);
+    let now = std::time::SystemTime::now();
     let sessions = classify_sessions(&run_dir, ssh_timeout)?;
 
     if sessions.is_empty() {
@@ -63,30 +65,46 @@ fn prune(force: bool) -> Result<()> {
     let mut skipped = 0u32;
 
     for session in &sessions {
-        match session.state {
-            SessionState::Alive if !force => {
-                // Live session — skip unless --force
-                continue;
-            }
-            SessionState::Alive => {
-                // --force: kill live session
-            }
-            SessionState::Dead => {
-                // QEMU already gone — just clean the dir
-            }
-            SessionState::Zombie => {
-                // QEMU alive but guest unreachable — always clean
+        let label = session.dir.file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| session.dir.display().to_string());
+
+        // Skip sessions younger than --min-age (unless --force)
+        if !force {
+            if let Some(created) = session.created {
+                if let Ok(age) = now.duration_since(created) {
+                    if age < min_age {
+                        continue;
+                    }
+                }
             }
         }
 
-        // Git-dirty check for dead sessions (skip with --force)
-        if !force && session.state == SessionState::Dead {
+        // Decide whether to reap this session:
+        //
+        //   Dead                  → reap (QEMU gone, just clean dirs)
+        //   Orphaned (any state)  → reap (managing seguro process died)
+        //   Zombie, not orphaned  → skip (probably still booting)
+        //   Alive, not orphaned   → skip (actively managed)
+        //   --force               → reap everything
+        let should_reap = force || match session.state {
+            SessionState::Dead => true,
+            _ if session.orphaned => true,
+            _ => false,
+        };
+
+        if !should_reap {
+            continue;
+        }
+
+        // Git-dirty check for dead/orphaned sessions (skip with --force)
+        if !force {
             if let Some(workspace) = read_session_workspace(&session.dir) {
                 match crate::api::check_workspace_git_state(&workspace) {
                     Ok(state) if state.has_uncommitted || state.has_unpushed => {
                         eprintln!(
                             "Skipping {} — workspace {} has {} (use --force to override)",
-                            session.dir.display(),
+                            label,
                             workspace.display(),
                             if state.has_unpushed { "unpushed commits" } else { "uncommitted changes" },
                         );
@@ -101,9 +119,6 @@ fn prune(force: bool) -> Result<()> {
         // Kill QEMU if still running
         if let Some(pid) = session.pid {
             if is_qemu_pid_alive(pid) {
-                let label = session.dir.file_name()
-                    .map(|n| n.to_string_lossy().to_string())
-                    .unwrap_or_else(|| session.dir.display().to_string());
                 eprintln!("Killing QEMU (pid {}) for session {}", pid, label);
                 kill_qemu_pid(pid);
                 killed += 1;

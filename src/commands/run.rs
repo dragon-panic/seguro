@@ -66,6 +66,8 @@ pub async fn execute(args: RunArgs) -> Result<()> {
 
     // ── Register signal handlers ─────────────────────────────────────────────
     use tokio::signal::unix::{signal, SignalKind};
+    let mut sigint = signal(SignalKind::interrupt())
+        .expect("failed to register SIGINT handler");
     let mut sigterm = signal(SignalKind::terminate())
         .expect("failed to register SIGTERM handler");
     let mut sighup = signal(SignalKind::hangup())
@@ -74,6 +76,10 @@ pub async fn execute(args: RunArgs) -> Result<()> {
     // ── Execute agent command, racing against signals ────────────────────────
     let result = tokio::select! {
         r = sandbox.exec(&args.agent) => r,
+        _ = sigint.recv() => {
+            tracing::info!("SIGINT received, shutting down");
+            Err(eyre!("terminated by signal"))
+        }
         _ = sigterm.recv() => {
             tracing::info!("SIGTERM received, shutting down");
             Err(eyre!("terminated by signal"))

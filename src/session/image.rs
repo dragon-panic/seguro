@@ -135,6 +135,11 @@ pub struct SessionInfo {
     pub pid: Option<i32>,
     pub ssh_port: Option<u16>,
     pub state: SessionState,
+    /// The managing seguro process is no longer running.
+    /// True when `seguro.pid` is absent or the PID is dead.
+    pub orphaned: bool,
+    /// When the session directory was created.
+    pub created: Option<std::time::SystemTime>,
 }
 
 /// Scan `runtime_dir` and classify every session directory by liveness.
@@ -144,6 +149,9 @@ pub struct SessionInfo {
 ///   - **Zombie**: QEMU PID is alive but the guest SSH port is unreachable
 ///     (TCP connect + SSH banner check fails within `ssh_timeout`).
 ///   - **Alive**: QEMU PID is alive and guest SSH responds.
+///
+/// Each session is also checked for orphan status: if `seguro.pid` is absent
+/// or the managing process is no longer running, `orphaned` is set to `true`.
 pub fn classify_sessions(runtime_dir: &Path, ssh_timeout: std::time::Duration) -> Result<Vec<SessionInfo>> {
     let mut sessions = Vec::new();
     if !runtime_dir.exists() {
@@ -173,7 +181,10 @@ pub fn classify_sessions(runtime_dir: &Path, ssh_timeout: std::time::Duration) -
             SessionState::Zombie
         };
 
-        sessions.push(SessionInfo { dir, pid, ssh_port, state });
+        let orphaned = is_seguro_pid_dead(&dir);
+        let created = dir_created_time(&dir);
+
+        sessions.push(SessionInfo { dir, pid, ssh_port, state, orphaned, created });
     }
     Ok(sessions)
 }
@@ -205,6 +216,31 @@ pub fn is_qemu_pid_alive(pid: i32) -> bool {
     std::fs::read_to_string(comm_path)
         .map(|s| s.trim().starts_with("qemu-system"))
         .unwrap_or(false)
+}
+
+/// Check whether the managing seguro process (from `seguro.pid`) is dead or missing.
+///
+/// Returns `true` (orphaned) if:
+///   - `seguro.pid` doesn't exist (legacy session, no managing process recorded)
+///   - The PID is no longer a running process
+fn is_seguro_pid_dead(session_dir: &Path) -> bool {
+    let Some(pid) = read_seguro_pid(session_dir) else {
+        return true; // no seguro.pid file → orphaned
+    };
+    // Check if process exists (signal 0 = no signal, just check)
+    nix::sys::signal::kill(nix::unistd::Pid::from_raw(pid), None).is_err()
+}
+
+fn read_seguro_pid(session_dir: &Path) -> Option<i32> {
+    let content = std::fs::read_to_string(session_dir.join("seguro.pid")).ok()?;
+    content.trim().parse().ok()
+}
+
+/// Get directory creation time (falls back to mtime).
+fn dir_created_time(dir: &Path) -> Option<std::time::SystemTime> {
+    let meta = std::fs::metadata(dir).ok()?;
+    // Try birth time first, fall back to mtime
+    meta.created().or_else(|_| meta.modified()).ok()
 }
 
 /// Check whether the guest is reachable by attempting a TCP connect to the SSH
@@ -369,5 +405,50 @@ mod tests {
     fn is_guest_reachable_returns_false_for_unbound_port() {
         // Port 1 is privileged and almost certainly not listening
         assert!(!is_guest_reachable(1, Duration::from_millis(100)));
+    }
+
+    #[test]
+    fn session_without_seguro_pid_is_orphaned() {
+        let tmp = tempfile::tempdir().unwrap();
+        // No seguro.pid file → orphaned
+        make_session(tmp.path(), "no-manager", Some("999999999"), None);
+
+        let sessions = classify_sessions(tmp.path(), Duration::from_millis(100)).unwrap();
+        assert_eq!(sessions.len(), 1);
+        assert!(sessions[0].orphaned);
+    }
+
+    #[test]
+    fn session_with_dead_seguro_pid_is_orphaned() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = make_session(tmp.path(), "dead-manager", Some("999999999"), None);
+        // Write a bogus seguro.pid (PID that doesn't exist)
+        std::fs::write(dir.join("seguro.pid"), "999999998").unwrap();
+
+        let sessions = classify_sessions(tmp.path(), Duration::from_millis(100)).unwrap();
+        assert_eq!(sessions.len(), 1);
+        assert!(sessions[0].orphaned);
+    }
+
+    #[test]
+    fn session_with_live_seguro_pid_is_not_orphaned() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = make_session(tmp.path(), "live-manager", Some("999999999"), None);
+        // Write our own PID as the seguro.pid — we're alive
+        std::fs::write(dir.join("seguro.pid"), std::process::id().to_string()).unwrap();
+
+        let sessions = classify_sessions(tmp.path(), Duration::from_millis(100)).unwrap();
+        assert_eq!(sessions.len(), 1);
+        assert!(!sessions[0].orphaned);
+    }
+
+    #[test]
+    fn session_has_created_timestamp() {
+        let tmp = tempfile::tempdir().unwrap();
+        make_session(tmp.path(), "timestamped", None, None);
+
+        let sessions = classify_sessions(tmp.path(), Duration::from_millis(100)).unwrap();
+        assert_eq!(sessions.len(), 1);
+        assert!(sessions[0].created.is_some());
     }
 }

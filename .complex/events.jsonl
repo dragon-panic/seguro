@@ -321,3 +321,33 @@
 {"ts":"2026-03-30T20:43:55.318376723+00:00","action":"edit","node_id":"49uv"}
 {"ts":"2026-03-30T20:45:42.355818615+00:00","action":"edit","node_id":"49uv"}
 {"ts":"2026-03-30T23:25:03.509257522+00:00","action":"integrate","node_id":"49uv","reason":"credential injection, persona, AI usage tracking stripped; QEMU stdin detached"}
+{"ts":"2026-03-31T03:03:55.700443894+00:00","action":"create","node_id":"EEWb","detail":"Prune safety: don't kill live VMs, don't let dead ones fill tmpfs"}
+{"ts":"2026-03-31T03:03:59.672131592+00:00","action":"tag","node_id":"EEWb","detail":"bug"}
+{"ts":"2026-03-31T03:09:28.909860860+00:00","action":"edit","node_id":"EEWb"}
+{"ts":"2026-03-31T03:09:28.911117942+00:00","action":"surface","node_id":"EEWb"}
+{"ts":"2026-03-31T03:09:28.913425276+00:00","action":"claim","node_id":"EEWb","part":"claude","reason":"approved plan: sigint handling + seguro.pid + safe prune"}
+{"ts":"2026-03-31T03:09:33.988442339+00:00","action":"create","node_id":"EEWb.cndZ","detail":"Write seguro.pid to session dir on startup"}
+{"ts":"2026-03-31T03:09:33.990536970+00:00","action":"create","node_id":"EEWb.qBvh","detail":"Add SIGINT to signal handlers in run.rs"}
+{"ts":"2026-03-31T03:09:33.992597202+00:00","action":"create","node_id":"EEWb.3e7H","detail":"Add orphaned classification to session/image.rs"}
+{"ts":"2026-03-31T03:09:33.994564918+00:00","action":"create","node_id":"EEWb.fHa0","detail":"Update prune logic: skip managed zombies, reap orphans"}
+{"ts":"2026-03-31T03:09:33.996357371+00:00","action":"create","node_id":"EEWb.QqLG","detail":"Add --min-age flag to prune"}
+{"ts":"2026-03-31T03:09:33.998232690+00:00","action":"create","node_id":"EEWb.s6uQ","detail":"Tests for new prune/classification logic"}
+{"ts":"2026-03-31T03:09:40.124261548+00:00","action":"surface","node_id":"EEWb.cndZ"}
+{"ts":"2026-03-31T03:09:40.125898416+00:00","action":"surface","node_id":"EEWb.qBvh"}
+{"ts":"2026-03-31T03:09:40.127439678+00:00","action":"surface","node_id":"EEWb.QqLG"}
+{"ts":"2026-03-31T03:10:17.702796236+00:00","action":"claim","node_id":"EEWb.cndZ","part":"claude"}
+{"ts":"2026-03-31T03:10:17.704385687+00:00","action":"claim","node_id":"EEWb.qBvh","part":"claude"}
+{"ts":"2026-03-31T03:10:17.706202458+00:00","action":"claim","node_id":"EEWb.QqLG","part":"claude"}
+{"ts":"2026-03-31T03:11:00.136613312+00:00","action":"integrate","node_id":"EEWb.cndZ","reason":"seguro.pid + ssh.port + workspace.path written to session dir"}
+{"ts":"2026-03-31T03:11:00.136666890+00:00","action":"surface","node_id":"EEWb.3e7H","reason":"auto-surfaced: last blocker integrated"}
+{"ts":"2026-03-31T03:11:00.138345478+00:00","action":"integrate","node_id":"EEWb.qBvh","reason":"SIGINT handler added"}
+{"ts":"2026-03-31T03:11:00.140021765+00:00","action":"integrate","node_id":"EEWb.QqLG","reason":"min-age flag added to prune CLI"}
+{"ts":"2026-03-31T03:11:02.801189802+00:00","action":"claim","node_id":"EEWb.3e7H","part":"claude"}
+{"ts":"2026-03-31T03:11:39.636741909+00:00","action":"integrate","node_id":"EEWb.3e7H","reason":"orphaned field + is_seguro_pid_dead + dir_created_time added to classification"}
+{"ts":"2026-03-31T03:11:39.636798647+00:00","action":"surface","node_id":"EEWb.fHa0","reason":"auto-surfaced: last blocker integrated"}
+{"ts":"2026-03-31T03:11:42.562942057+00:00","action":"claim","node_id":"EEWb.fHa0","part":"claude"}
+{"ts":"2026-03-31T03:12:09.238178957+00:00","action":"integrate","node_id":"EEWb.fHa0","reason":"prune logic rewritten: skip managed zombies, reap orphans, min-age filter"}
+{"ts":"2026-03-31T03:12:09.238236235+00:00","action":"surface","node_id":"EEWb.s6uQ","reason":"auto-surfaced: last blocker integrated"}
+{"ts":"2026-03-31T03:12:12.047093054+00:00","action":"claim","node_id":"EEWb.s6uQ","part":"claude"}
+{"ts":"2026-03-31T03:12:49.650894688+00:00","action":"integrate","node_id":"EEWb.s6uQ","reason":"4 new tests: orphaned detection (no file, dead pid, live pid) + created timestamp"}
+{"ts":"2026-03-31T03:12:53.501033570+00:00","action":"integrate","node_id":"EEWb","reason":"all subtasks done: SIGINT handler, seguro.pid tracking, safe prune logic, min-age, tests"}
