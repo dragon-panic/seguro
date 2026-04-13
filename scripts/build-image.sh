@@ -170,6 +170,7 @@ runcmd:
   - mkdir -p /home/agent/workspace
   - chown agent:agent /home/agent/workspace
   - npm install -g @anthropic-ai/claude-code
+  - npm install -g @openai/codex
   - curl -fsSL https://github.com/mozilla/sccache/releases/download/v0.12.0/sccache-v0.12.0-x86_64-unknown-linux-musl.tar.gz | tar xz -C /tmp && install -m 755 /tmp/sccache-v0.12.0-x86_64-unknown-linux-musl/sccache /usr/local/bin/sccache
   - su - agent -c 'curl --proto =https --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable'
   - su - agent -c '. ~/.cargo/env && cargo search --limit 0'

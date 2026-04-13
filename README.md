@@ -2,8 +2,8 @@
 
 Sandbox CLI coding agents inside a QEMU virtual machine. Seguro launches an
 Ubuntu 24.04 guest with controlled filesystem and network access, so agents
-like Claude Code can operate without touching host credentials, SSH keys, or
-your LAN.
+like Claude Code or OpenAI Codex can operate without touching host
+credentials, SSH keys, or your LAN.
 
 ## Host requirements
 
@@ -53,7 +53,8 @@ The binary is at `target/release/seguro`.
 ### 1. Build the base VM image
 
 This downloads an Ubuntu 24.04 minimal cloud image, boots it in QEMU to
-install packages (git, curl, python3, nodejs, etc.), then compacts the result.
+install packages (git, curl, python3, nodejs, etc.) plus the Claude Code
+and OpenAI Codex CLIs via `npm -g`, then compacts the result.
 
 ```sh
 ./scripts/build-image.sh
@@ -78,6 +79,7 @@ seguro run --share ./myproject
 
 # Run a specific agent command
 seguro run --share ./myproject -- claude
+seguro run --share ./myproject -- codex
 
 # With browser support (4 GB RAM, 4 vCPUs)
 seguro run --browser --share ./myproject -- claude
