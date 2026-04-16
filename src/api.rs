@@ -422,7 +422,7 @@ impl Sandbox {
         let mut mount_specs = Vec::with_capacity(mounts.len());
         for (i, m) in mounts.iter().enumerate() {
             let sock = session.runtime_dir.join(format!("virtiofs-{i}.sock"));
-            let vfsd = Virtiofsd::start(&m.host, &sock).await?;
+            let vfsd = Virtiofsd::start(&m.host, &sock, m.readonly).await?;
             tracing::info!(pid = vfsd.id(), mount = %m.host.display(), tag = i, "virtiofsd started");
             virtiofsd_procs.push(vfsd);
             mount_specs.push(MountSpec {
@@ -932,7 +932,7 @@ impl Sandbox {
         let mut mount_specs = Vec::with_capacity(mounts.len());
         for (i, m) in mounts.iter().enumerate() {
             let sock = runtime_dir.join(format!("virtiofs-{i}.sock"));
-            let vfsd = Virtiofsd::start(&m.host, &sock).await?;
+            let vfsd = Virtiofsd::start(&m.host, &sock, m.readonly).await?;
             virtiofsd_procs.push(vfsd);
             mount_specs.push(MountSpec {
                 socket: sock,
