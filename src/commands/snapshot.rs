@@ -3,6 +3,7 @@ use color_eyre::eyre::{Result, eyre};
 use crate::cli::{SnapshotArgs, SnapshotCommand};
 use crate::config::runtime_dir;
 use crate::session::image::{snapshot_restore, snapshot_save};
+use crate::session::session_layout;
 
 pub async fn execute(args: SnapshotArgs) -> Result<()> {
     match args.command {
@@ -32,23 +33,31 @@ async fn restore(name: &str) -> Result<()> {
 
 /// Find the overlay qcow2 path for the currently active session.
 /// Returns (overlay_path, Option<base_path>).
+///
+/// The overlay no longer lives under the runtime dir — `session_layout(id)`
+/// derives its real path from `overlay_dir()`.
 fn active_session_overlay() -> Result<(std::path::PathBuf, Option<std::path::PathBuf>)> {
     let run_dir = runtime_dir();
     let sessions: Vec<_> = std::fs::read_dir(&run_dir)
         .map_err(|_| eyre!("no active sessions"))?
         .filter_map(|e| e.ok())
-        .filter(|e| {
-            e.path().is_dir()
-                && e.path().join("qemu.pid").exists()
-                && e.path().join("session.qcow2").exists()
-        })
+        .filter(|e| e.path().is_dir() && e.path().join("qemu.pid").exists())
         .collect();
 
     match sessions.len() {
-        0 => Err(eyre!("no active session with a disk overlay found")),
+        0 => Err(eyre!("no active session found")),
         1 => {
             let dir = sessions[0].path();
-            let overlay = dir.join("session.qcow2");
+            let id = dir.file_name()
+                .and_then(|n| n.to_str())
+                .ok_or_else(|| eyre!("session dir has no utf-8 name: {}", dir.display()))?;
+            let overlay = session_layout(id).overlay_path;
+            if !overlay.exists() {
+                return Err(eyre!(
+                    "session {} has no overlay at {} — session may be mid-setup or corrupt",
+                    id, overlay.display(),
+                ));
+            }
             let base = std::fs::read_to_string(dir.join("base.path"))
                 .ok()
                 .map(|s| std::path::PathBuf::from(s.trim()));

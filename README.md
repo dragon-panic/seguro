@@ -145,6 +145,21 @@ No message content is captured — only metadata (model, token counts, latency).
 
 Project config overrides user config for that session.
 
+### Session storage layout
+
+Per-session artifacts live under two roots with different characteristics:
+
+| Root | Contents | Typical FS |
+|------|----------|-----------|
+| `$XDG_RUNTIME_DIR/seguro/<id>/` | vhost-user sockets, `qemu.pid`, `ssh.port`, `session.json`, ephemeral ssh key, `cidata.img` | tmpfs |
+| `$XDG_STATE_HOME/seguro/overlays/<id>.qcow2` (or `~/.local/state/seguro/overlays/<id>.qcow2`) | session qcow2 overlay — grows with guest work | real disk |
+
+Overlays are kept off tmpfs because a concurrent guest build can grow the qcow2 to several GB in minutes; `XDG_RUNTIME_DIR` is typically capped at ~10 % of RAM and running it out silently wedges guest writes.
+
+Override with `SEGURO_OVERLAY_DIR=/path/to/fast-nvme/overlays` to point overlays at a different mount (e.g. a faster disk or an explicitly-ephemeral `/tmp` for CI).
+
+Current caveat: `--persistent` means "don't delete the session when the managing process exits." It does **not** survive reboot, because `session.json` still lives under tmpfs. True reboot-persistent sessions would require moving the metadata to disk too.
+
 Example `seguro.toml` for `api-only` mode:
 
 ```toml

@@ -1,0 +1,7 @@
+[
+  {
+    "timestamp": "2026-04-18T15:50:44.675789295Z",
+    "author": "unknown",
+    "body": "Scope note during implementation: dropped the \"classify_sessions marks a session Dead when the overlay file is missing\" criterion from slice 1.\n\nReason: the qemu-alive + overlay-missing case is rare (qemu holds the qcow2 fd open), can't be reproduced in a pure unit test without a real qemu process, and the common qemu-dead + overlay-missing case is already Dead via the existing PID check. Slice 2's orphan sweep doesn't route through classify_sessions either — it compares overlay_dir against live runtime_dir session ids directly. So the tightening is cosmetic for slice 1.\n\nNet: slice 1 keeps the layout split, cleanup change, snapshot fix, and README note."
+  }
+]

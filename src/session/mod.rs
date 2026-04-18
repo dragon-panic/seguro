@@ -35,8 +35,11 @@ pub struct SessionLayout {
 }
 
 /// Compute the on-disk layout for a session id. Pure — no side effects.
-pub fn session_layout(_id: &str) -> SessionLayout {
-    unimplemented!("session_layout — slice 1 red stub")
+pub fn session_layout(id: &str) -> SessionLayout {
+    SessionLayout {
+        runtime_dir: crate::config::runtime_dir().join(id),
+        overlay_path: crate::config::overlay_dir().join(format!("{id}.qcow2")),
+    }
 }
 
 impl Session {
@@ -47,14 +50,21 @@ impl Session {
     /// Allocate all per-session resources (dirs, ports, keys, overlay).
     pub async fn allocate(base_image: &std::path::Path) -> Result<Self> {
         let id = Self::new_id();
-        let runtime_dir = crate::config::runtime_dir().join(&id);
+        let SessionLayout { runtime_dir, overlay_path } = session_layout(&id);
+
+        // Runtime dir first. If we crash between this and overlay creation,
+        // the orphan is a Dead runtime dir (prune handles) — never a qcow2
+        // without a runtime dir to link it to.
         std::fs::create_dir_all(&runtime_dir)
             .wrap_err_with(|| format!("creating runtime dir {}", runtime_dir.display()))?;
+        if let Some(parent) = overlay_path.parent() {
+            std::fs::create_dir_all(parent)
+                .wrap_err_with(|| format!("creating overlay dir {}", parent.display()))?;
+        }
 
         let ssh_port = ports::allocate_port().await?;
         let proxy_port = ports::allocate_port().await?;
         let ssh_key_path = runtime_dir.join("id_ed25519");
-        let overlay_path = runtime_dir.join("session.qcow2");
 
         keys::generate(&ssh_key_path).await?;
         image::create_overlay(base_image, &overlay_path).await?;
@@ -98,8 +108,15 @@ impl Session {
 /// overlay file (disk). Pulled out so `Session::cleanup` and the prune path
 /// share exactly one definition of "what a session owns on disk."
 pub fn remove_session_artifacts(runtime_dir: &std::path::Path, overlay_path: &std::path::Path) -> Result<()> {
-    let _ = (runtime_dir, overlay_path);
-    unimplemented!("remove_session_artifacts — slice 1 red stub")
+    if overlay_path.exists() {
+        std::fs::remove_file(overlay_path)
+            .wrap_err_with(|| format!("removing overlay {}", overlay_path.display()))?;
+    }
+    if runtime_dir.exists() {
+        std::fs::remove_dir_all(runtime_dir)
+            .wrap_err_with(|| format!("removing runtime dir {}", runtime_dir.display()))?;
+    }
+    Ok(())
 }
 
 #[cfg(test)]
