@@ -1,8 +1,9 @@
 use color_eyre::eyre::Result;
 
 use crate::cli::{SessionsArgs, SessionsCommand};
-use crate::config::runtime_dir;
-use crate::session::image::{SessionState, classify_sessions, is_qemu_pid_alive, kill_qemu_pid};
+use crate::config::{overlay_dir, runtime_dir};
+use crate::session::image::{SessionState, classify_sessions, is_qemu_pid_alive, kill_qemu_pid, list_orphan_overlays};
+use crate::session::{remove_session_artifacts, session_layout};
 
 pub async fn execute(args: SessionsArgs) -> Result<()> {
     match args.command {
@@ -125,21 +126,50 @@ fn prune(force: bool, min_age_secs: u64) -> Result<()> {
             }
         }
 
-        // Remove session directory
-        if let Err(e) = std::fs::remove_dir_all(&session.dir) {
-            eprintln!("  warning: failed to remove {}: {}", session.dir.display(), e);
-        } else {
-            pruned += 1;
+        // Remove both runtime dir and overlay file (they live under different roots).
+        let overlay_path = session.dir.file_name()
+            .and_then(|n| n.to_str())
+            .map(|id| session_layout(id).overlay_path);
+        let result = match overlay_path.as_deref() {
+            Some(overlay) => remove_session_artifacts(&session.dir, overlay),
+            None => std::fs::remove_dir_all(&session.dir).map_err(Into::into),
+        };
+        match result {
+            Ok(()) => pruned += 1,
+            Err(e) => eprintln!("  warning: failed to remove {}: {}", session.dir.display(), e),
         }
     }
 
-    if pruned == 0 && killed == 0 {
+    // Second pass: sweep overlay files whose runtime dir is gone (reboot, failed
+    // cleanup, crashes). Uses the same --min-age grace so an overlay written
+    // moments ago by Session::allocate isn't reaped before its runtime dir is
+    // populated.
+    let mut overlay_orphans = 0u32;
+    match list_orphan_overlays(&run_dir, &overlay_dir(), min_age) {
+        Ok(orphans) => {
+            for overlay in orphans {
+                if let Err(e) = std::fs::remove_file(&overlay) {
+                    eprintln!("  warning: failed to remove orphan overlay {}: {}", overlay.display(), e);
+                } else {
+                    overlay_orphans += 1;
+                }
+            }
+        }
+        Err(e) => eprintln!("  warning: orphan overlay sweep failed: {}", e),
+    }
+
+    if pruned == 0 && killed == 0 && overlay_orphans == 0 {
         println!("Nothing to prune.");
     } else {
         if killed > 0 {
             println!("Killed {} QEMU process(es).", killed);
         }
-        println!("Pruned {} session(s).", pruned);
+        if pruned > 0 {
+            println!("Pruned {} session(s).", pruned);
+        }
+        if overlay_orphans > 0 {
+            println!("Swept {} orphan overlay file(s).", overlay_orphans);
+        }
     }
     if skipped > 0 {
         println!("Skipped {} session(s) with dirty workspaces.", skipped);

@@ -221,8 +221,50 @@ pub fn list_orphan_overlays(
     overlay_dir: &Path,
     min_age: std::time::Duration,
 ) -> Result<Vec<PathBuf>> {
-    let _ = (runtime_dir, overlay_dir, min_age);
-    unimplemented!("list_orphan_overlays — slice 2 red stub")
+    if !overlay_dir.exists() {
+        return Ok(Vec::new());
+    }
+
+    let live_ids: std::collections::HashSet<String> = if runtime_dir.exists() {
+        std::fs::read_dir(runtime_dir)
+            .wrap_err_with(|| format!("reading runtime dir {}", runtime_dir.display()))?
+            .filter_map(|e| e.ok())
+            .filter(|e| e.path().is_dir())
+            .filter_map(|e| e.file_name().into_string().ok())
+            .collect()
+    } else {
+        std::collections::HashSet::new()
+    };
+
+    let now = std::time::SystemTime::now();
+    let mut orphans = Vec::new();
+    for entry in std::fs::read_dir(overlay_dir)
+        .wrap_err_with(|| format!("reading overlay dir {}", overlay_dir.display()))?
+    {
+        let entry = entry?;
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("qcow2") {
+            continue;
+        }
+        let Some(stem) = path.file_stem().and_then(|s| s.to_str()) else {
+            continue;
+        };
+        if live_ids.contains(stem) {
+            continue;
+        }
+
+        // mtime grace. A file younger than min_age is protected — covers the
+        // window between Session::allocate creating the runtime dir and writing
+        // the overlay on a loaded system.
+        let mtime = entry.metadata().and_then(|m| m.modified()).ok();
+        let age = mtime.and_then(|t| now.duration_since(t).ok()).unwrap_or_default();
+        if age < min_age {
+            continue;
+        }
+
+        orphans.push(path);
+    }
+    Ok(orphans)
 }
 
 fn read_pid(session_dir: &Path) -> Option<i32> {
