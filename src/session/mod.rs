@@ -19,6 +19,26 @@ pub struct Session {
     pub qemu_pid: Option<u32>,
 }
 
+/// Per-session path layout.
+///
+/// Two distinct roots, by design:
+///   - `runtime_dir`  → `$XDG_RUNTIME_DIR/seguro/<id>/` (tmpfs): sockets, pids,
+///     ssh key, cidata.img, session.json. Small, ephemeral, cleared on reboot.
+///   - `overlay_path` → `overlay_dir()/<id>.qcow2` (real disk): the only artifact
+///     that grows during guest work.
+///
+/// Before this split, everything shared `runtime_dir` and a concurrent build
+/// could fill tmpfs in minutes, wedging guests with silent write errors.
+pub struct SessionLayout {
+    pub runtime_dir: PathBuf,
+    pub overlay_path: PathBuf,
+}
+
+/// Compute the on-disk layout for a session id. Pure — no side effects.
+pub fn session_layout(_id: &str) -> SessionLayout {
+    unimplemented!("session_layout — slice 1 red stub")
+}
+
 impl Session {
     pub fn new_id() -> String {
         Uuid::new_v4().to_string()
@@ -57,7 +77,8 @@ impl Session {
             .wrap_err("writing qemu.pid")
     }
 
-    /// Clean up all session resources: kill child processes, remove runtime dir.
+    /// Clean up all session resources: kill child processes, remove runtime dir
+    /// AND the overlay file (which lives separately from the runtime dir).
     pub async fn cleanup(self) -> Result<()> {
         if let Some(pid) = self.qemu_pid {
             let _ = nix::sys::signal::kill(
@@ -68,10 +89,87 @@ impl Session {
         // Give processes a moment to terminate gracefully
         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
 
-        if self.runtime_dir.exists() {
-            std::fs::remove_dir_all(&self.runtime_dir)
-                .wrap_err_with(|| format!("removing runtime dir {}", self.runtime_dir.display()))?;
-        }
+        remove_session_artifacts(&self.runtime_dir, &self.overlay_path)?;
         Ok(())
+    }
+}
+
+/// Remove both per-session artifacts: the runtime subdir (tmpfs) and the
+/// overlay file (disk). Pulled out so `Session::cleanup` and the prune path
+/// share exactly one definition of "what a session owns on disk."
+pub fn remove_session_artifacts(runtime_dir: &std::path::Path, overlay_path: &std::path::Path) -> Result<()> {
+    let _ = (runtime_dir, overlay_path);
+    unimplemented!("remove_session_artifacts — slice 1 red stub")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `session_layout` pins the qcow2 under `overlay_dir()`, not under
+    /// `runtime_dir`. This is the load-bearing invariant of slice 1 — if the
+    /// overlay lives anywhere under `runtime_dir`, tmpfs fills again.
+    #[test]
+    fn layout_puts_overlay_outside_runtime_dir() {
+        let prior_overlay = std::env::var("SEGURO_OVERLAY_DIR").ok();
+        let prior_xdg = std::env::var("XDG_RUNTIME_DIR").ok();
+
+        std::env::set_var("XDG_RUNTIME_DIR", "/tmp/seguro-layout-test/run");
+        std::env::set_var("SEGURO_OVERLAY_DIR", "/tmp/seguro-layout-test/overlays");
+
+        let layout = session_layout("sess-abc");
+        assert_eq!(
+            layout.runtime_dir,
+            PathBuf::from("/tmp/seguro-layout-test/run/seguro/sess-abc"),
+        );
+        assert_eq!(
+            layout.overlay_path,
+            PathBuf::from("/tmp/seguro-layout-test/overlays/sess-abc.qcow2"),
+        );
+        assert!(
+            !layout.overlay_path.starts_with(&layout.runtime_dir),
+            "overlay lives under runtime dir — tmpfs regression",
+        );
+
+        match prior_overlay {
+            Some(v) => std::env::set_var("SEGURO_OVERLAY_DIR", v),
+            None => std::env::remove_var("SEGURO_OVERLAY_DIR"),
+        }
+        match prior_xdg {
+            Some(v) => std::env::set_var("XDG_RUNTIME_DIR", v),
+            None => std::env::remove_var("XDG_RUNTIME_DIR"),
+        }
+    }
+
+    /// `remove_session_artifacts` removes both the runtime subdir and the
+    /// overlay file, even when they live under different roots.
+    #[test]
+    fn cleanup_removes_both_runtime_dir_and_overlay_file() {
+        let tmp = tempfile::tempdir().unwrap();
+        let runtime = tmp.path().join("run/sess-xyz");
+        let overlay_root = tmp.path().join("overlays");
+        let overlay = overlay_root.join("sess-xyz.qcow2");
+
+        std::fs::create_dir_all(&runtime).unwrap();
+        std::fs::write(runtime.join("qemu.pid"), "0").unwrap();
+        std::fs::create_dir_all(&overlay_root).unwrap();
+        std::fs::write(&overlay, b"fake qcow2").unwrap();
+
+        remove_session_artifacts(&runtime, &overlay).unwrap();
+
+        assert!(!runtime.exists(), "runtime dir not removed");
+        assert!(!overlay.exists(), "overlay file not removed");
+    }
+
+    /// Missing overlay (already cleaned) must not fail. Cleanup is best-effort
+    /// and may race with a separate prune pass.
+    #[test]
+    fn cleanup_is_idempotent_on_missing_artifacts() {
+        let tmp = tempfile::tempdir().unwrap();
+        let runtime = tmp.path().join("run/nothing");
+        let overlay = tmp.path().join("overlays/nothing.qcow2");
+        // Neither exists.
+
+        remove_session_artifacts(&runtime, &overlay).unwrap();
     }
 }
