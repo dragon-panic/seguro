@@ -1,11 +1,11 @@
 {
   "id": "Uvke",
   "title": "slice 2 — prune sweeps orphan overlays",
-  "state": "claimed",
+  "state": "integrated",
   "shadowed": false,
   "part": "unknown",
   "created_at": "2026-04-18T15:40:47.083229767Z",
-  "updated_at": "2026-04-18T15:52:32.804625172Z",
+  "updated_at": "2026-04-18T15:57:36.879396920Z",
   "filed_by": "claude",
   "parent": "82Xd"
 }

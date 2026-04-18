@@ -1,10 +1,10 @@
 {
   "id": "82Xd",
   "title": "session storage split — overlays to disk, runtime stays on tmpfs",
-  "state": "ready",
+  "state": "integrated",
   "shadowed": false,
   "part": null,
   "created_at": "2026-04-18T15:40:19.037938634Z",
-  "updated_at": "2026-04-18T15:40:50.437219326Z",
+  "updated_at": "2026-04-18T15:57:36.880871804Z",
   "filed_by": "claude"
 }
