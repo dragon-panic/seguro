@@ -361,7 +361,17 @@ pub fn runtime_dir() -> PathBuf {
 ///   2. `$XDG_STATE_HOME/seguro/overlays` (real disk, XDG state per spec).
 ///   3. `~/.local/state/seguro/overlays` fallback when XDG is unset.
 pub fn overlay_dir() -> PathBuf {
-    unimplemented!("overlay_dir — slice 1 red stub")
+    if let Ok(explicit) = std::env::var("SEGURO_OVERLAY_DIR") {
+        return PathBuf::from(explicit);
+    }
+    if let Ok(xdg_state) = std::env::var("XDG_STATE_HOME") {
+        return PathBuf::from(xdg_state).join("seguro").join("overlays");
+    }
+    dirs::state_dir()
+        .or_else(dirs::data_local_dir)
+        .unwrap_or_else(|| PathBuf::from("~/.local/state"))
+        .join("seguro")
+        .join("overlays")
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
