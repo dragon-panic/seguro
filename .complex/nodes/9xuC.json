@@ -1,11 +1,11 @@
 {
   "id": "9xuC",
   "title": "slice 1 — move session.qcow2 to overlay_dir on real disk",
-  "state": "claimed",
+  "state": "integrated",
   "shadowed": false,
   "part": "unknown",
   "created_at": "2026-04-18T15:40:47.081196567Z",
-  "updated_at": "2026-04-18T15:50:44.675791800Z",
+  "updated_at": "2026-04-18T15:52:32.802712804Z",
   "filed_by": "claude",
   "parent": "82Xd",
   "edges": [

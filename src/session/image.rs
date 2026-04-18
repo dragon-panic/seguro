@@ -201,6 +201,30 @@ pub fn list_orphaned_sessions(runtime_dir: &Path) -> Result<Vec<PathBuf>> {
         .collect())
 }
 
+/// List qcow2 overlays in `overlay_dir` whose session id has no matching
+/// subdirectory under `runtime_dir` and whose mtime is older than `min_age`.
+///
+/// Why both checks:
+///   - `runtime_dir` is tmpfs; it is cleared on reboot. Every overlay on disk
+///     becomes orphaned simultaneously after a reboot — exactly what we want
+///     to sweep.
+///   - `min_age` protects overlays mid-creation. `Session::allocate` writes
+///     the runtime dir first and the overlay second, so a freshly-written
+///     overlay with a pending runtime dir is possible for a small window.
+///
+/// Call ordering matters: run the existing Dead-session cleanup first, then
+/// this sweep. The Dead path removes both runtime dir and overlay atomically
+/// via `remove_session_artifacts`; any overlay this function returns is one
+/// that cleanup missed (failed halfway, survived reboot, raced with rm).
+pub fn list_orphan_overlays(
+    runtime_dir: &Path,
+    overlay_dir: &Path,
+    min_age: std::time::Duration,
+) -> Result<Vec<PathBuf>> {
+    let _ = (runtime_dir, overlay_dir, min_age);
+    unimplemented!("list_orphan_overlays — slice 2 red stub")
+}
+
 fn read_pid(session_dir: &Path) -> Option<i32> {
     let content = std::fs::read_to_string(session_dir.join("qemu.pid")).ok()?;
     content.trim().parse().ok()
@@ -450,5 +474,112 @@ mod tests {
         let sessions = classify_sessions(tmp.path(), Duration::from_millis(100)).unwrap();
         assert_eq!(sessions.len(), 1);
         assert!(sessions[0].created.is_some());
+    }
+
+    // ── orphan overlay sweep (slice 2) ──────────────────────────────────────
+
+    fn make_overlay(overlay_dir: &Path, id: &str) -> PathBuf {
+        std::fs::create_dir_all(overlay_dir).unwrap();
+        let path = overlay_dir.join(format!("{id}.qcow2"));
+        std::fs::write(&path, b"fake qcow2").unwrap();
+        path
+    }
+
+    #[test]
+    fn orphan_overlays_empty_dirs() {
+        let tmp = tempfile::tempdir().unwrap();
+        let rt = tmp.path().join("run");
+        let ov = tmp.path().join("overlays");
+        std::fs::create_dir_all(&rt).unwrap();
+        std::fs::create_dir_all(&ov).unwrap();
+
+        let orphans = list_orphan_overlays(&rt, &ov, Duration::from_secs(0)).unwrap();
+        assert!(orphans.is_empty());
+    }
+
+    #[test]
+    fn orphan_overlays_missing_overlay_dir_is_empty_not_error() {
+        let tmp = tempfile::tempdir().unwrap();
+        let rt = tmp.path().join("run");
+        let ov = tmp.path().join("does-not-exist");
+        std::fs::create_dir_all(&rt).unwrap();
+
+        let orphans = list_orphan_overlays(&rt, &ov, Duration::from_secs(0)).unwrap();
+        assert!(orphans.is_empty());
+    }
+
+    #[test]
+    fn overlay_with_matching_runtime_dir_is_kept() {
+        let tmp = tempfile::tempdir().unwrap();
+        let rt = tmp.path().join("run");
+        let ov = tmp.path().join("overlays");
+        make_session(&rt, "sess-live", None, None); // runtime subdir exists
+        make_overlay(&ov, "sess-live");
+
+        let orphans = list_orphan_overlays(&rt, &ov, Duration::from_secs(0)).unwrap();
+        assert!(orphans.is_empty(), "matched overlay was incorrectly reaped: {:?}", orphans);
+    }
+
+    #[test]
+    fn overlay_without_runtime_dir_past_grace_is_reported() {
+        let tmp = tempfile::tempdir().unwrap();
+        let rt = tmp.path().join("run");
+        let ov = tmp.path().join("overlays");
+        std::fs::create_dir_all(&rt).unwrap();
+        let leaked = make_overlay(&ov, "sess-leaked");
+
+        let orphans = list_orphan_overlays(&rt, &ov, Duration::from_secs(0)).unwrap();
+        assert_eq!(orphans, vec![leaked]);
+    }
+
+    #[test]
+    fn overlay_within_grace_is_protected() {
+        let tmp = tempfile::tempdir().unwrap();
+        let rt = tmp.path().join("run");
+        let ov = tmp.path().join("overlays");
+        std::fs::create_dir_all(&rt).unwrap();
+        make_overlay(&ov, "sess-just-born");
+
+        // Large grace — freshly-written overlay should NOT be reaped.
+        let orphans = list_orphan_overlays(&rt, &ov, Duration::from_secs(3600)).unwrap();
+        assert!(orphans.is_empty(), "young overlay reaped: {:?}", orphans);
+    }
+
+    /// Post-reboot: tmpfs is cleared, so `runtime_dir` may not even exist yet.
+    /// Every overlay on disk is orphaned. This is the case the original tmpfs
+    /// fill incident (elu 2026-04-17) would have benefited from.
+    #[test]
+    fn post_reboot_sweeps_all_overlays() {
+        let tmp = tempfile::tempdir().unwrap();
+        let rt = tmp.path().join("run");        // deliberately NOT created — simulates tmpfs cleared
+        let ov = tmp.path().join("overlays");
+        make_overlay(&ov, "sess-a");
+        make_overlay(&ov, "sess-b");
+        make_overlay(&ov, "sess-c");
+
+        let mut orphans = list_orphan_overlays(&rt, &ov, Duration::from_secs(0)).unwrap();
+        orphans.sort();
+        assert_eq!(
+            orphans,
+            vec![
+                ov.join("sess-a.qcow2"),
+                ov.join("sess-b.qcow2"),
+                ov.join("sess-c.qcow2"),
+            ],
+        );
+    }
+
+    #[test]
+    fn non_qcow2_files_are_ignored() {
+        let tmp = tempfile::tempdir().unwrap();
+        let rt = tmp.path().join("run");
+        let ov = tmp.path().join("overlays");
+        std::fs::create_dir_all(&rt).unwrap();
+        std::fs::create_dir_all(&ov).unwrap();
+        std::fs::write(ov.join("README.md"), "not an overlay").unwrap();
+        std::fs::write(ov.join("sess-x.txt"), "also not").unwrap();
+
+        let orphans = list_orphan_overlays(&rt, &ov, Duration::from_secs(0)).unwrap();
+        assert!(orphans.is_empty(), "non-qcow2 files misclassified: {:?}", orphans);
     }
 }
