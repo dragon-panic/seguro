@@ -1,0 +1,19 @@
+{
+  "id": "EEWb.fHa0",
+  "title": "Update prune logic: skip managed zombies, reap orphans",
+  "state": "integrated",
+  "shadowed": false,
+  "part": "claude",
+  "created_at": "2026-03-31T03:09:33.994161353Z",
+  "updated_at": "2026-03-31T03:12:09.237593829Z",
+  "parent": "EEWb",
+  "meta": {
+    "_reason": "prune logic rewritten: skip managed zombies, reap orphans, min-age filter"
+  },
+  "edges": [
+    {
+      "to": "EEWb.s6uQ",
+      "type": "blocks"
+    }
+  ]
+}

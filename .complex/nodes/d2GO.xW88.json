@@ -1,0 +1,13 @@
+{
+  "id": "d2GO.xW88",
+  "title": "Bake cargo registry into base image",
+  "state": "integrated",
+  "shadowed": false,
+  "part": "claude",
+  "created_at": "2026-03-29T14:06:53.720954240Z",
+  "updated_at": "2026-03-29T14:10:04.762618010Z",
+  "parent": "d2GO",
+  "meta": {
+    "_reason": "cargo registry index pre-populated via 'cargo search --limit 0' in build-image.sh runcmd"
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "id": "EEWb.cndZ",
+  "title": "Write seguro.pid to session dir on startup",
+  "state": "integrated",
+  "shadowed": false,
+  "part": "claude",
+  "created_at": "2026-03-31T03:09:33.987900769Z",
+  "updated_at": "2026-03-31T03:11:00.135963597Z",
+  "parent": "EEWb",
+  "meta": {
+    "_reason": "seguro.pid + ssh.port + workspace.path written to session dir"
+  },
+  "edges": [
+    {
+      "to": "EEWb.3e7H",
+      "type": "blocks"
+    }
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "id": "EEWb",
+  "title": "Prune safety: don't kill live VMs, don't let dead ones fill tmpfs",
+  "state": "integrated",
+  "shadowed": false,
+  "part": "claude",
+  "created_at": "2026-03-31T03:03:55.699685343Z",
+  "updated_at": "2026-03-31T03:12:53.500457402Z",
+  "filed_by": "ox:god",
+  "tags": [
+    "bug"
+  ],
+  "meta": {
+    "_reason": "all subtasks done: SIGINT handler, seguro.pid tracking, safe prune logic, min-age, tests"
+  }
+}

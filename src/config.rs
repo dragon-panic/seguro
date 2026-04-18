@@ -350,6 +350,20 @@ pub fn runtime_dir() -> PathBuf {
     std::env::temp_dir().join(format!("seguro-{}", nix::unistd::getuid()))
 }
 
+/// Directory holding per-session qcow2 overlays.
+///
+/// Separate from `runtime_dir` because overlays grow multi-GB during guest work
+/// and tmpfs (`$XDG_RUNTIME_DIR`) is a poor fit — it fills fast and blocks writes.
+///
+/// Resolution order:
+///   1. `$SEGURO_OVERLAY_DIR` (operator escape hatch — point at a fast NVMe, a
+///      different mount, or `/tmp` for ephemeral CI).
+///   2. `$XDG_STATE_HOME/seguro/overlays` (real disk, XDG state per spec).
+///   3. `~/.local/state/seguro/overlays` fallback when XDG is unset.
+pub fn overlay_dir() -> PathBuf {
+    unimplemented!("overlay_dir — slice 1 red stub")
+}
+
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -587,5 +601,44 @@ VNC_PORT = "5900"
         let p = cfg.profile("cua");
         assert_eq!(p.env.get("DISPLAY").unwrap(), ":99");
         assert_eq!(p.env.get("VNC_PORT").unwrap(), "5900");
+    }
+
+    /// `SEGURO_OVERLAY_DIR` wins, and the default lives under `seguro/overlays`
+    /// regardless of whether `XDG_STATE_HOME` is set. One test because env is
+    /// process-global and splitting would race in parallel test runs.
+    #[test]
+    fn overlay_dir_env_and_default() {
+        // Restore anything set in the ambient env to avoid poisoning sibling tests.
+        let prior_override = std::env::var("SEGURO_OVERLAY_DIR").ok();
+        let prior_state = std::env::var("XDG_STATE_HOME").ok();
+
+        // (1) explicit override wins.
+        std::env::set_var("SEGURO_OVERLAY_DIR", "/tmp/seguro-overlay-unit-test");
+        assert_eq!(overlay_dir(), PathBuf::from("/tmp/seguro-overlay-unit-test"));
+
+        // (2) XDG_STATE_HOME is honored.
+        std::env::remove_var("SEGURO_OVERLAY_DIR");
+        std::env::set_var("XDG_STATE_HOME", "/tmp/seguro-xdg-state-unit-test");
+        assert_eq!(
+            overlay_dir(),
+            PathBuf::from("/tmp/seguro-xdg-state-unit-test/seguro/overlays"),
+        );
+
+        // (3) without either, falls back under seguro/overlays (~/.local/state by XDG spec).
+        std::env::remove_var("XDG_STATE_HOME");
+        let fallback = overlay_dir();
+        assert!(
+            fallback.ends_with("seguro/overlays"),
+            "fallback did not end with seguro/overlays: {:?}",
+            fallback,
+        );
+
+        // Restore ambient env.
+        if let Some(v) = prior_override {
+            std::env::set_var("SEGURO_OVERLAY_DIR", v);
+        }
+        if let Some(v) = prior_state {
+            std::env::set_var("XDG_STATE_HOME", v);
+        }
     }
 }

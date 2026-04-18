@@ -1,0 +1,13 @@
+{
+  "id": "d2GO.w7pN",
+  "title": "Write ox issue for shared cache mount usage",
+  "state": "integrated",
+  "shadowed": false,
+  "part": "claude",
+  "created_at": "2026-03-29T14:06:53.722647125Z",
+  "updated_at": "2026-03-29T14:13:55.962148318Z",
+  "parent": "d2GO",
+  "meta": {
+    "_reason": "ox issue 9QhN created with usage instructions"
+  }
+}

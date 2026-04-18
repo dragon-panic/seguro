@@ -1,0 +1,13 @@
+{
+  "id": "EEWb.QqLG",
+  "title": "Add --min-age flag to prune",
+  "state": "integrated",
+  "shadowed": false,
+  "part": "claude",
+  "created_at": "2026-03-31T03:09:33.995985645Z",
+  "updated_at": "2026-03-31T03:11:00.139635749Z",
+  "parent": "EEWb",
+  "meta": {
+    "_reason": "min-age flag added to prune CLI"
+  }
+}

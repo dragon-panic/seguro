@@ -1,0 +1,23 @@
+{
+  "id": "EEWb.3e7H",
+  "title": "Add orphaned classification to session/image.rs",
+  "state": "integrated",
+  "shadowed": false,
+  "part": "claude",
+  "created_at": "2026-03-31T03:09:33.992206737Z",
+  "updated_at": "2026-03-31T03:11:39.636164771Z",
+  "parent": "EEWb",
+  "meta": {
+    "_reason": "orphaned field + is_seguro_pid_dead + dir_created_time added to classification"
+  },
+  "edges": [
+    {
+      "to": "EEWb.fHa0",
+      "type": "blocks"
+    },
+    {
+      "to": "EEWb.s6uQ",
+      "type": "blocks"
+    }
+  ]
+}

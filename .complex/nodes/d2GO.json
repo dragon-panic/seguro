@@ -1,0 +1,13 @@
+{
+  "id": "d2GO",
+  "title": "Shared sccache for pool VMs — eliminate cold cargo builds",
+  "state": "integrated",
+  "shadowed": false,
+  "part": "claude",
+  "created_at": "2026-03-28T22:09:42.446716582Z",
+  "updated_at": "2026-03-29T14:13:59.692354983Z",
+  "filed_by": "ox",
+  "meta": {
+    "_reason": "all subtasks complete — sccache in image, RUSTC_WRAPPER in default profile, cargo registry pre-populated, ox issue filed"
+  }
+}
